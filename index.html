@@ -10,28 +10,73 @@
   <div class="wrap">
     <div class="topbar">
       <div class="title">Pixel Platformer</div>
-      <div class="hint">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift (after pickup)</div>
+      <div class="hint">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
     </div>
 
     <div class="main">
-      <canvas id="game" width="960" height="540"></canvas>
+      <div class="stage">
+        <canvas id="game" width="960" height="540"></canvas>
 
-      <div id="menu" class="menu">
-        <h2 style="margin:0 0 6px 0;">Choose your character</h2>
-        <div class="small">Gilly · Scott · Kevin · Nate</div>
-        <div id="charGrid" class="char-grid" style="margin-top:12px;"></div>
-        <button id="startBtn" class="btn" disabled>Start</button>
-        <p class="small" style="margin-top:10px;">
-          Tip: Add <code>?seed=123</code> to the URL for repeatable procedural levels.
-        </p>
-      </div>
+        <!-- Character Select -->
+        <div id="menu" class="menu">
+          <h2 style="margin:0 0 6px 0;">Choose your character</h2>
+          <div class="small">Gilly · Scott · Kevin · Nate</div>
+          <div id="charGrid" class="char-grid" style="margin-top:12px;"></div>
+          <button id="startBtn" class="btn" disabled>Start</button>
+          <p class="small" style="margin-top:10px;">
+            Tip: Add <code>?seed=123</code> to the URL for repeatable procedural levels.
+          </p>
+        </div>
 
-      <div id="hud" class="hud hidden">
-        <div>Level: <span id="hudLevel">1</span></div>
-        <div>Coins: <span id="hudCoins">0</span></div>
-        <div>Dash: <span id="hudDash">No</span></div>
-        <div>Speed: <span id="hudSpeed">Normal</span></div>
-        <div>Throw: <span id="hudThrow">Ready</span></div>
+        <!-- HUD -->
+        <div id="hud" class="hud hidden">
+          <div>Level: <span id="hudLevel">1</span></div>
+          <div>Coins: <span id="hudCoins">0</span></div>
+          <div>Dash: <span id="hudDash">No</span></div>
+          <div>Speed: <span id="hudSpeed">Normal</span></div>
+          <div>Throw: <span id="hudThrow">Ready</span></div>
+        </div>
+
+        <!-- PAUSE OVERLAY -->
+        <div id="pauseOverlay" class="overlay hidden" aria-hidden="true">
+          <div class="overlay-card">
+            <div class="overlay-title">PAUSED</div>
+            <div class="overlay-sub">Esc to resume</div>
+
+            <div class="overlay-buttons">
+              <button id="resumeBtn" class="btn btn-solid">Resume</button>
+              <button id="shopBtn" class="btn">Shop</button>
+              <button id="restartBtn" class="btn">Restart Level</button>
+              <button id="quitBtn" class="btn btn-danger">Quit to Character Select</button>
+            </div>
+
+            <div class="overlay-help small">
+              Controls: ←/→ or A/D · Space jump · F throw · Shift dash · Esc pause
+            </div>
+          </div>
+        </div>
+
+        <!-- SHOP OVERLAY -->
+        <div id="shopOverlay" class="overlay hidden" aria-hidden="true">
+          <div class="overlay-card shop-card">
+            <div class="overlay-title">SHOP</div>
+            <div class="overlay-sub">
+              Spend coins on upgrades (permanent for this run).
+            </div>
+
+            <div class="shop-topline">
+              <div class="shop-coins">Coins: <span id="shopCoins">0</span></div>
+              <button id="closeShopBtn" class="btn btn-solid">Back</button>
+            </div>
+
+            <div id="shopList" class="shop-list"></div>
+
+            <div class="overlay-help small">
+              Tip: Dash module can also be found in levels — buying it skips the wait.
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <div class="footer">Made with HTML Canvas · Hosted on GitHub Pages</div>
@@ -41,3 +86,4 @@
   <script src="main.js"></script>
 </body>
 </html>
+
