@@ -1,14 +1,10 @@
 (() => {
   "use strict";
 
-  // ---------- DOM ----------
+  // ---------------- DOM ----------------
   const $ = (id) => document.getElementById(id);
 
-  const canvas = $("game") || $("gameCanvas");
-  if (!canvas) {
-    alert("Canvas not found. Make sure index.html has <canvas id='game'>.");
-    return;
-  }
+  const canvas = $("game");
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
 
@@ -21,6 +17,8 @@
   const hudDash = $("hudDash");
   const hudSpeed = $("hudSpeed");
   const hudThrow = $("hudThrow");
+
+  const hpBlocksEl = $("hpBlocks");
 
   const tutorialBox = $("tutorialBox");
   const tutMove = $("tutMove");
@@ -40,21 +38,25 @@
   const btnClearRestart = $("btnClearRestart");
 
   const shopOverlay = $("shopOverlay");
-  const shopCoins = $("shopCoins");
+  const shopkeeperImg = $("shopkeeperImg");
+  const shopCoinsEl = $("shopCoins");
   const shopList = $("shopList");
   const btnShopBack = $("btnShopBack");
 
   const loadingOverlay = $("loadingOverlay");
   const loadingFill = $("loadingFill");
 
-  // ---------- Utils ----------
+  // ---------------- Utils ----------------
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
 
   function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
-  // ---------- Input ----------
+  function nowMs() { return performance.now(); }
+
+  // ---------------- Input ----------------
   const keys = new Set();
   window.addEventListener("keydown", (e) => {
     keys.add(e.code);
@@ -64,7 +66,7 @@
   window.addEventListener("keyup", (e) => keys.delete(e.code));
   const down = (code) => keys.has(code);
 
-  // ---------- RNG ----------
+  // ---------------- RNG (stable per stage) ----------------
   function mulberry32(seed) {
     let a = seed >>> 0;
     return function () {
@@ -76,70 +78,77 @@
     };
   }
 
-  // ---------- Assets (root OR /assets) ----------
-  const ASSETS = {
-    background: ["Background_Pic.png"],
-    platform: ["Platform.png"],
-    exit: ["Exit_Door.png"],
-    enemy1: ["Enemy1.png"],
-    enemy2: ["Enemy2.png"],
-    coin: ["Coin.png", "coin.png"],
-    weapon: ["powerup_homephone.png"],
-    dash: ["Powerup_Dash.png"],
-    speed: ["Powerup_Speedboost.png", "Powerup_SpeedBoost.png"],
-    characters: {
-      Gilly: ["Gilly.png"],
-      Scott: ["Scott.png"],
-      Kevin: ["Kevin.png"],
-      Nate: ["Nate.png"],
-      Edgar: ["Edgar.png"]
-    }
+  // ---------------- Assets ----------------
+  // IMPORTANT: your repo has /assets with these exact filenames.
+  const ASSET_BASE = "assets/";
+
+  const FILES = {
+    Background: "Background_Pic.png",
+    Platform: "Platform.png",
+    Exit: "Exit_Door.png",
+    Coin: "Coin.png",
+    Enemy1: "Enemy1.png",
+    Enemy2: "Enemy2.png",
+    Weapon: "powerup_homephone.png",
+    Dash: "Powerup_Dash.png",
+    Speed: "Powerup_Speedboost.png",
+
+    Gilly: "Gilly.png",
+    Scott: "Scott.png",
+    Kevin: "Kevin.png",
+    Nate: "Nate.png",
+    Edgar: "Edgar.png"
   };
 
-  const imgs = { characters: {} };
-
-  function loadImage(url) {
+  const imgs = {};
+  function loadImage(path) {
     return new Promise((resolve, reject) => {
       const im = new Image();
       im.onload = () => resolve(im);
-      im.onerror = () => reject(new Error("Failed: " + url));
-      im.src = url;
+      im.onerror = () => reject(new Error("Failed to load " + path));
+      im.src = path;
     });
   }
 
-  function candidateUrls(file) {
-    return [file, `./${file}`, `assets/${file}`, `./assets/${file}`];
-  }
-
-  async function loadFirst(list) {
-    for (const file of list) {
-      for (const url of candidateUrls(file)) {
-        try { return await loadImage(url); } catch (_) {}
-      }
-    }
-    return null;
-  }
-
   async function loadAllAssets() {
-    imgs.background = await loadFirst(ASSETS.background);
-    imgs.platform = await loadFirst(ASSETS.platform);
-    imgs.exit = await loadFirst(ASSETS.exit);
-    imgs.enemy1 = await loadFirst(ASSETS.enemy1);
-    imgs.enemy2 = await loadFirst(ASSETS.enemy2);
-    imgs.coin = await loadFirst(ASSETS.coin);
-    imgs.weapon = await loadFirst(ASSETS.weapon);
-    imgs.dash = await loadFirst(ASSETS.dash);
-    imgs.speed = await loadFirst(ASSETS.speed);
+    const want = Object.entries(FILES).map(async ([k, file]) => {
+      const im = await loadImage(ASSET_BASE + file);
+      imgs[k] = im;
+    });
 
-    for (const [name, opts] of Object.entries(ASSETS.characters)) {
-      imgs.characters[name] = await loadFirst(opts);
-    }
+    await Promise.all(want);
+
+    // shopkeeper portrait
+    shopkeeperImg.src = imgs.Edgar.src;
   }
 
-  // ---------- Game State ----------
+  // ---------------- Game constants ----------------
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
+  // World “floor”
+  const PLATFORM_H = 42;     // match the visual chunk we tile
+  const GROUND_Y = 640;      // top of the ground platform
+
+  // Make sprites feel bigger on the platforms
+  const DRAW = {
+    playerScale: 2.05,
+    enemyScale: 2.00,
+    exitScale: 2.10,
+    coinScale: 1.45,
+    weaponScale: 1.35
+  };
+
+  // Physics tuned for consistent jump reach
+  const PHYS = {
+    gravity: 2400,
+    accel: 3400,
+    maxSpeed: 420,
+    jump: 940,
+    friction: 0.82
+  };
+
+  // ---------------- State ----------------
   const GAME = {
     mode: "menu", // menu | play | paused | stageclear | shop | loading
     stage: 1,
@@ -149,41 +158,39 @@
     speedUnlocked: false,
     shopUsedThisStage: false,
 
-    worldW: 2400,
-    worldH: 720,
+    worldW: 2600,
     camX: 0,
 
     platforms: [],
-    pickups: [], // {kind, x,y,w,h, value?}
+    pickups: [],
     enemies: [],
     projectiles: [],
-    exit: null, // {x,y,w,h}
+
+    exit: null,
     exitLocked: false,
 
+    // loading timer
     loadingT: 0,
-    loadingDur: 6.5,
+    loadingDur: 8.0, // 5–10 seconds: using 8s
     pendingStage: null,
 
+    // tutorial checks
     tutorial: { move:false, jump:false, throw:false }
   };
 
-  // ---------- Entities ----------
-  const PHYS = {
-    gravity: 2200,
-    accel: 3200,
-    maxSpeed: 360,
-    jump: 860,
-    friction: 0.82
-  };
-
+  // Player collider is intentionally smaller than the sprite (fixes “collision box too big”)
   const player = {
     char: "Nate",
-    x: 120, y: 520,
-    w: 52, h: 78,
+
+    x: 120, y: GROUND_Y - 74,
+    w: 44, h: 74,
     vx: 0, vy: 0,
     onGround: false,
     facing: 1,
+
     hp: 8, maxHp: 8,
+    invuln: 0,
+
     dashCd: 0,
     throwCd: 0
   };
@@ -194,40 +201,54 @@
     player.onGround = false;
     player.facing = 1;
     player.hp = player.maxHp;
+    player.invuln = 0;
     player.dashCd = 0;
     player.throwCd = 0;
   }
 
-  function makeEnemy(type, x, y, isBoss=false) {
-    const base = {
-      type, x, y,
-      w: type === "enemy2" ? 56 : 48,
-      h: type === "enemy2" ? 72 : 64,
+  function makeEnemy(type, x, y, isBoss=false, platformRef=null) {
+    const is2 = type === "enemy2";
+    const e = {
+      type,
+      x, y,
+      w: is2 ? 50 : 46,
+      h: is2 ? 76 : 70,
       vx: 0, vy: 0,
       onGround: false,
       facing: -1,
-      speed: type === "enemy2" ? 170 : 150,
-      hp: type === "enemy2" ? 6 : 4,
-      maxHp: type === "enemy2" ? 6 : 4,
+
+      speed: is2 ? 165 : 150,
+      hp: is2 ? 6 : 4,
+      maxHp: is2 ? 6 : 4,
       damage: 1,
-      patrolMin: x - 150,
-      patrolMax: x + 150,
+
+      // anchoring enemy to a platform fixes the “not on platform” feeling
+      platform: platformRef,
+
+      // patrol bounds (usually platform edges)
+      patrolMin: x - 140,
+      patrolMax: x + 140,
+
       isBoss,
+      aiT: 0,
       jumpCd: 0
     };
+
     if (isBoss) {
-      base.hp = type === "enemy2" ? 14 : 10;
-      base.maxHp = base.hp;
-      base.speed += 40;
-      base.damage = 2;
+      e.hp = is2 ? 14 : 10;
+      e.maxHp = e.hp;
+      e.speed += 40;
+      e.damage = 2;
     }
-    return base;
+
+    return e;
   }
 
-  // ---------- Platform collision ----------
+  // ---------------- Collision & platform helpers ----------------
   function resolvePlatformCollisions(ent, dt) {
     ent.onGround = false;
 
+    // X
     ent.x += ent.vx * dt;
     for (const p of GAME.platforms) {
       if (rectsOverlap(ent, p)) {
@@ -237,131 +258,134 @@
       }
     }
 
+    // Y
     ent.y += ent.vy * dt;
     for (const p of GAME.platforms) {
       if (rectsOverlap(ent, p)) {
-        if (ent.vy > 0) { ent.y = p.y - ent.h; ent.vy = 0; ent.onGround = true; }
-        else if (ent.vy < 0) { ent.y = p.y + p.h; ent.vy = 0; }
+        if (ent.vy > 0) {
+          ent.y = p.y - ent.h;
+          ent.vy = 0;
+          ent.onGround = true;
+        } else if (ent.vy < 0) {
+          ent.y = p.y + p.h;
+          ent.vy = 0;
+        }
       }
     }
 
     ent.x = clamp(ent.x, -200, GAME.worldW - ent.w + 200);
-    ent.y = clamp(ent.y, -800, GAME.worldH - ent.h + 400);
+    ent.y = clamp(ent.y, -1200, VIEW_H + 600);
   }
 
-  // ---------- Enemy tracking FIX helpers ----------
-  function getSupportPlatform(ent) {
-    if (!ent.onGround) return null;
-    const footY = ent.y + ent.h;
-    let best = null;
+  function platformUnderFeet(ent, extraDown=6) {
+    // Returns the platform that the entity is currently standing on (or null)
+    const feet = {
+      x: ent.x + 4,
+      y: ent.y + ent.h,
+      w: ent.w - 8,
+      h: extraDown
+    };
     for (const p of GAME.platforms) {
-      if (Math.abs(footY - p.y) > 2) continue;
-      const overlap = Math.min(ent.x + ent.w, p.x + p.w) - Math.max(ent.x, p.x);
-      if (overlap <= 1) continue;
-      if (!best || overlap > best.overlap) best = { p, overlap };
+      if (rectsOverlap(feet, p)) return p;
     }
-    return best ? best.p : null;
+    return null;
   }
 
-  function sameLane(a, b, tol = 26) {
-    return Math.abs((a.y + a.h) - (b.y + b.h)) <= tol;
+  function willStepOff(ent, dir) {
+    // Look ahead a bit and see if there will be ground/platform below next step
+    const aheadX = ent.x + ent.w/2 + dir * (ent.w/2 + 8);
+    const probe = { x: aheadX, y: ent.y + ent.h + 2, w: 2, h: 10 };
+    for (const p of GAME.platforms) {
+      if (rectsOverlap(probe, p)) return false; // safe
+    }
+    return true; // would fall
   }
 
-  // ---------- Drawing ----------
-  const PLATFORM_H = 36;
-  const SPR_PLAYER = 1.55;
-  const SPR_ENEMY = 1.55;
-  const SPR_EXIT = 1.75;
-
+  // ---------------- Drawing ----------------
   function drawBackground() {
-    if (!imgs.background) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0,0,VIEW_W,VIEW_H);
-      return;
-    }
-    // simple parallax tile
-    const im = imgs.background;
+    const im = imgs.Background;
     const scale = VIEW_H / im.height;
-    const w = im.width * scale;
-    const xOff = -((GAME.camX * 0.18) % w);
-    for (let x = xOff; x < VIEW_W + w; x += w) {
-      ctx.drawImage(im, x, 0, w, VIEW_H);
+    const tileW = im.width * scale;
+
+    // Parallax scroll
+    const par = 0.18;
+    const x0 = -((GAME.camX * par) % tileW);
+
+    for (let x = x0; x < VIEW_W + tileW; x += tileW) {
+      ctx.drawImage(im, x, 0, tileW, VIEW_H);
     }
   }
 
   function drawPlatform(p) {
-    if (!imgs.platform) {
-      ctx.fillStyle = "rgba(255,255,255,0.18)";
-      ctx.fillRect(p.x, p.y, p.w, p.h);
-      return;
-    }
-    const im = imgs.platform;
+    const im = imgs.Platform;
+
+    // Tile the platform texture horizontally, keep platform height consistent
     const scale = PLATFORM_H / im.height;
-    const tw = im.width * scale;
+    const tileW = im.width * scale;
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(p.x, p.y, p.w, PLATFORM_H);
     ctx.clip();
-    for (let x = p.x; x < p.x + p.w; x += tw) {
-      ctx.drawImage(im, x, p.y, tw, PLATFORM_H);
+
+    for (let x = p.x; x < p.x + p.w; x += tileW) {
+      ctx.drawImage(im, x, p.y, tileW, PLATFORM_H);
     }
     ctx.restore();
   }
 
-  function drawSpriteAnchored(im, x, y, w, h, scale=1.0) {
-    if (!im) {
-      ctx.fillStyle = "rgba(255,255,255,0.25)";
-      ctx.fillRect(x,y,w,h);
-      return;
-    }
+  function drawAnchored(im, x, y, w, h, scale=1.0, footPad=0) {
+    // Anchor to collider bottom, so feet stay “on platform”
     const dw = w * scale;
     const dh = h * scale;
     const dx = x + w/2 - dw/2;
-    const dy = y + h - dh; // FEET anchored
+    const dy = (y + h) - dh + footPad;
     ctx.drawImage(im, dx, dy, dw, dh);
   }
 
-  function drawHPBlocksScreen(x, y, blocks, filled) {
-    const bw=14, bh=12, gap=3;
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(x-6, y-6, blocks*(bw+gap)+10, bh+12);
-    for (let i=0;i<blocks;i++){
-      ctx.fillStyle="rgba(255,255,255,0.9)";
-      ctx.fillRect(x+i*(bw+gap), y, bw, bh);
-      ctx.fillStyle="rgba(0,0,0,0.9)";
-      ctx.fillRect(x+i*(bw+gap)+2, y+2, bw-4, bh-4);
-      if (i < filled){
-        ctx.fillStyle="rgba(255,255,255,0.95)";
-        ctx.fillRect(x+i*(bw+gap)+3, y+3, bw-6, bh-6);
-      }
-    }
+  function drawCoin(c) {
+    const im = imgs.Coin;
+    drawAnchored(im, c.x, c.y, c.w, c.h, DRAW.coinScale, 0);
   }
 
-  function drawHPBarWorld(ent) {
+  function drawExit(ex) {
+    const im = imgs.Exit;
+    drawAnchored(im, ex.x, ex.y, ex.w, ex.h, DRAW.exitScale, 4);
+  }
+
+  function drawHPBlocks(ent) {
     const blocks = ent.maxHp;
     const filled = clamp(ent.hp, 0, ent.maxHp);
-    const bw=10, bh=6, gap=2;
+    const bw = 10, bh = 6, gap = 2;
     const total = blocks*(bw+gap)-gap;
     const x = ent.x + ent.w/2 - total/2;
     const y = ent.y - 12;
 
-    ctx.fillStyle="rgba(0,0,0,0.6)";
-    ctx.fillRect(x-3,y-3,total+6,bh+6);
+    ctx.fillStyle = "rgba(0,0,0,.6)";
+    ctx.fillRect(x-3, y-3, total+6, bh+6);
+
     for (let i=0;i<blocks;i++){
-      ctx.fillStyle="rgba(255,255,255,0.85)";
+      ctx.fillStyle = "rgba(255,255,255,.85)";
       ctx.fillRect(x+i*(bw+gap), y, bw, bh);
-      ctx.fillStyle="rgba(0,0,0,0.95)";
+      ctx.fillStyle = "rgba(0,0,0,.95)";
       ctx.fillRect(x+i*(bw+gap)+1, y+1, bw-2, bh-2);
-      if (i<filled){
-        ctx.fillStyle="rgba(255,255,255,0.95)";
+      if (i < filled) {
+        ctx.fillStyle = "rgba(255,255,255,.95)";
         ctx.fillRect(x+i*(bw+gap)+2, y+2, bw-4, bh-4);
       }
     }
   }
 
-  // ---------- Stage building ----------
-  const GROUND_Y = 620;
+  function updatePlayerHpHud() {
+    hpBlocksEl.innerHTML = "";
+    for (let i=0;i<player.maxHp;i++){
+      const d = document.createElement("div");
+      d.className = "hp-block" + (i < player.hp ? " filled" : "");
+      hpBlocksEl.appendChild(d);
+    }
+  }
 
+  // ---------------- Stage building ----------------
   function clearWorld() {
     GAME.platforms.length = 0;
     GAME.pickups.length = 0;
@@ -375,107 +399,143 @@
     GAME.platforms.push({ x:0, y:GROUND_Y, w:worldW, h:PLATFORM_H });
   }
 
+  function setTutorialChecks() {
+    tutMove.classList.toggle("done", GAME.tutorial.move);
+    tutJump.classList.toggle("done", GAME.tutorial.jump);
+    tutThrow.classList.toggle("done", GAME.tutorial.throw);
+
+    if (GAME.tutorial.move && GAME.tutorial.jump && GAME.tutorial.throw) {
+      tutorialBox.classList.add("hidden");
+    }
+  }
+
   function stage1Tutorial() {
     clearWorld();
-    GAME.worldW = 2400;
+    GAME.worldW = 2600;
+
     addGround(GAME.worldW);
 
-    // Easy steps
-    GAME.platforms.push({ x:380, y:520, w:320, h:PLATFORM_H });
-    GAME.platforms.push({ x:760, y:440, w:320, h:PLATFORM_H });
-    GAME.platforms.push({ x:1180, y:520, w:320, h:PLATFORM_H });
+    // Easy stepping platforms above ground (but ground stays clear so exit is always reachable)
+    const p1 = { x: 420, y: 520, w: 360, h: PLATFORM_H };
+    const p2 = { x: 860, y: 440, w: 360, h: PLATFORM_H };
+    const p3 = { x: 1320, y: 520, w: 360, h: PLATFORM_H };
+    GAME.platforms.push(p1, p2, p3);
 
-    // Coins on path
-    for (let i=0;i<6;i++){
-      GAME.pickups.push({ kind:"coin", x: 420 + i*120, y: 480 - (i%2)*40, w:24, h:24, value:1 });
+    // Coins
+    for (let i=0;i<7;i++){
+      GAME.pickups.push({ kind:"coin", x: 480 + i*120, y: 470 - (i%2)*38, w:24, h:24, value:1 });
     }
 
-    // One simple enemy
-    GAME.enemies.push(makeEnemy("enemy1", 900, GROUND_Y-64));
+    // One basic enemy on p2
+    const ePlat = p2;
+    const e = makeEnemy("enemy1", ePlat.x + 140, ePlat.y - 70, false, ePlat);
+    e.patrolMin = ePlat.x + 10;
+    e.patrolMax = ePlat.x + ePlat.w - e.w - 10;
+    GAME.enemies.push(e);
 
-    // Exit ALWAYS reachable on ground
-    GAME.exit = { x: GAME.worldW - 160, y: GROUND_Y - 110, w: 70, h: 110 };
+    // Exit on ground path and BIG
+    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
 
     resetPlayer(120, GROUND_Y - player.h);
 
-    // Tutorial visible
     GAME.tutorial = { move:false, jump:false, throw:false };
     tutorialBox.classList.remove("hidden");
-    setTutState();
+    setTutorialChecks();
   }
 
   function stage2BossArena() {
     clearWorld();
-    GAME.worldW = 2100;
+    GAME.worldW = 2400;
+
     addGround(GAME.worldW);
 
-    // Arena platforms
-    GAME.platforms.push({ x:420, y:520, w:360, h:PLATFORM_H });
-    GAME.platforms.push({ x:860, y:440, w:360, h:PLATFORM_H });
-    GAME.platforms.push({ x:1300, y:520, w:360, h:PLATFORM_H });
+    const p1 = { x: 520, y: 520, w: 380, h: PLATFORM_H };
+    const p2 = { x: 980, y: 440, w: 380, h: PLATFORM_H };
+    const p3 = { x: 1440, y: 520, w: 380, h: PLATFORM_H };
+    GAME.platforms.push(p1, p2, p3);
 
-    // Boss
-    const boss = makeEnemy("enemy2", 1500, GROUND_Y-72, true);
+    // Boss on ground (feels “boss fight”)
+    const boss = makeEnemy("enemy2", 1600, GROUND_Y - 76, true, null);
+    boss.patrolMin = 1200;
+    boss.patrolMax = 2000;
     GAME.enemies.push(boss);
+
     GAME.exitLocked = true;
+    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
 
-    // Exit on ground but locked until boss dies
-    GAME.exit = { x: GAME.worldW - 160, y: GROUND_Y - 110, w: 70, h: 110 };
+    resetPlayer(160, GROUND_Y - player.h);
 
-    resetPlayer(120, GROUND_Y - player.h);
     tutorialBox.classList.add("hidden");
   }
 
-  function generateProcedural(stage) {
+  // Safe procedural: ground path always clear, platforms are optional rewards.
+  function generateProcedural(stageNum) {
     clearWorld();
-    const seed = (Date.now() & 0xffffffff) ^ (stage * 99991);
+
+    const seed = (stageNum * 9973) ^ 0xA5A5A5A5;
     const rng = mulberry32(seed);
 
-    GAME.worldW = 2400 + stage * 220;
+    GAME.worldW = 2600 + Math.min(1200, stageNum * 220);
     addGround(GAME.worldW);
 
-    // SAFE: exit always on ground path
-    GAME.exit = { x: GAME.worldW - 160, y: GROUND_Y - 110, w: 70, h: 110 };
+    // Exit ALWAYS reachable by walking right on ground
+    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
+    GAME.exitLocked = false;
 
-    // Main “optional” platform path above ground (safe spacing)
-    let x = 260;
+    // Optional platform “islands” above ground
+    let x = 420;
     let y = 520;
-    const count = 7 + Math.min(8, stage); // not too crazy
-    for (let i=0;i<count;i++){
-      const w = 260 + Math.floor(rng()*140);
-      const dx = 180 + Math.floor(rng()*70);     // <= 250ish
-      const dy = -90 + Math.floor(rng()*180);    // -90..+90
-      x += dx;
-      y = clamp(y + dy, 260, 560);
-      if (x + w > GAME.worldW - 260) break;
-      GAME.platforms.push({ x, y, w, h: PLATFORM_H });
 
-      // coins above platform
-      const coinN = 2 + Math.floor(rng()*3);
+    const islandCount = 6 + Math.min(7, stageNum);
+    for (let i=0;i<islandCount;i++){
+      const w = 320 + Math.floor(rng()*220);
+      const dx = 220 + Math.floor(rng()*160);
+      const dy = -80 + Math.floor(rng()*160);
+
+      x += dx;
+      y = clamp(y + dy, 280, 560);
+
+      if (x + w > GAME.worldW - 380) break;
+
+      const plat = { x, y, w, h: PLATFORM_H };
+      GAME.platforms.push(plat);
+
+      // coins
+      const coinN = 2 + Math.floor(rng()*4);
       for (let c=0;c<coinN;c++){
-        GAME.pickups.push({ kind:"coin", x: x + 30 + c*70, y: y - 44, w:24, h:24, value:1 });
+        GAME.pickups.push({ kind:"coin", x: x + 40 + c*90, y: y - 46, w:24, h:24, value:1 });
       }
 
-      // enemy sometimes (patrol platform)
+      // enemy sometimes on island, anchored to island
       if (rng() < 0.55) {
-        const t = rng() < 0.5 ? "enemy1" : "enemy2";
-        const e = makeEnemy(t, x + 70 + Math.floor(rng()*120), y - (t==="enemy2"?72:64), false);
+        const t = rng() < 0.55 ? "enemy1" : "enemy2";
+        const e = makeEnemy(t, x + 90, y - (t==="enemy2"?76:70), false, plat);
         e.patrolMin = x + 10;
         e.patrolMax = x + w - e.w - 10;
         GAME.enemies.push(e);
       }
     }
 
-    // occasional pickups
-    if (!GAME.dashUnlocked && rng() < 0.6) {
-      GAME.pickups.push({ kind:"dash", x: 700, y: 560, w: 28, h: 28 });
-    }
-    if (!GAME.speedUnlocked && rng() < 0.5) {
-      GAME.pickups.push({ kind:"speed", x: 1300, y: 400, w: 28, h: 28 });
+    // A couple ground enemies (never block exit)
+    const gCount = 1 + Math.min(3, Math.floor(stageNum/2));
+    for (let i=0;i<gCount;i++){
+      const gx = 700 + i*520 + Math.floor(rng()*160);
+      const gt = rng() < 0.5 ? "enemy1" : "enemy2";
+      const e = makeEnemy(gt, gx, GROUND_Y - (gt==="enemy2"?76:70), false, null);
+      e.patrolMin = gx - 120;
+      e.patrolMax = gx + 120;
+      GAME.enemies.push(e);
     }
 
     resetPlayer(120, GROUND_Y - player.h);
     tutorialBox.classList.add("hidden");
+  }
+
+  function hideAllOverlays() {
+    pauseOverlay.classList.add("hidden");
+    stageClearOverlay.classList.add("hidden");
+    shopOverlay.classList.add("hidden");
+    loadingOverlay.classList.add("hidden");
   }
 
   function loadStage(n) {
@@ -488,30 +548,19 @@
 
     GAME.mode = "play";
     hideAllOverlays();
-    // menu should be hidden once playing
     menuEl.classList.add("hidden");
 
-    // camera reset
     GAME.camX = 0;
     updateHud();
+    updatePlayerHpHud();
   }
 
-  // ---------- Tutorial UI ----------
-  function setTutState() {
-    tutMove.classList.toggle("done", GAME.tutorial.move);
-    tutJump.classList.toggle("done", GAME.tutorial.jump);
-    tutThrow.classList.toggle("done", GAME.tutorial.throw);
-    if (GAME.tutorial.move && GAME.tutorial.jump && GAME.tutorial.throw) {
-      tutorialBox.classList.add("hidden");
-    }
-  }
-
-  // ---------- Shop ----------
+  // ---------------- Shop ----------------
   const SHOP_ITEMS = [
     {
       id:"dash",
       name:"Unlock Dash",
-      desc:"Press Shift to dash forward.",
+      desc:"Press Shift to dash forward (short burst).",
       cost: 10,
       canBuy: () => !GAME.dashUnlocked,
       buy: () => (GAME.dashUnlocked = true)
@@ -527,7 +576,7 @@
     {
       id:"hp",
       name:"+1 Max HP",
-      desc:"Increases your max HP by 1.",
+      desc:"Increases max HP by 1 (up to 12).",
       cost: 15,
       canBuy: () => player.maxHp < 12,
       buy: () => { player.maxHp += 1; player.hp = player.maxHp; }
@@ -543,36 +592,26 @@
   ];
 
   function renderShop() {
-    shopCoins.textContent = String(GAME.coins);
+    shopCoinsEl.textContent = String(GAME.coins);
     shopList.innerHTML = "";
 
     for (const item of SHOP_ITEMS) {
       const wrap = document.createElement("div");
-      wrap.style.marginTop = "10px";
-      wrap.style.padding = "10px";
-      wrap.style.border = "1px solid rgba(255,255,255,.12)";
-      wrap.style.borderRadius = "12px";
-      wrap.style.background = "rgba(0,0,0,.18)";
+      wrap.className = "shop-item";
 
-      const title = document.createElement("div");
-      title.style.fontWeight = "900";
-      title.textContent = item.name;
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = item.name;
 
       const desc = document.createElement("div");
-      desc.style.fontSize = "12px";
-      desc.style.color = "rgba(255,255,255,.68)";
-      desc.style.marginTop = "4px";
+      desc.className = "desc";
       desc.textContent = item.desc;
 
       const meta = document.createElement("div");
-      meta.style.display = "flex";
-      meta.style.justifyContent = "space-between";
-      meta.style.alignItems = "center";
-      meta.style.marginTop = "8px";
+      meta.className = "meta";
 
       const price = document.createElement("div");
-      price.style.fontFamily = '"Press Start 2P", monospace';
-      price.style.fontSize = "11px";
+      price.className = "mono";
       price.textContent = `Cost: ${item.cost}`;
 
       const btn = document.createElement("button");
@@ -587,30 +626,26 @@
         item.buy();
         renderShop();
         updateHud();
+        updatePlayerHpHud();
       };
 
       meta.appendChild(price);
       meta.appendChild(btn);
 
-      wrap.appendChild(title);
+      wrap.appendChild(name);
       wrap.appendChild(desc);
       wrap.appendChild(meta);
+
       shopList.appendChild(wrap);
     }
-  }
-
-  // ---------- Overlays ----------
-  function hideAllOverlays() {
-    pauseOverlay.classList.add("hidden");
-    stageClearOverlay.classList.add("hidden");
-    shopOverlay.classList.add("hidden");
-    loadingOverlay.classList.add("hidden");
   }
 
   function openStageClear() {
     GAME.mode = "stageclear";
     stageClearTitle.textContent = `STAGE ${GAME.stage} CLEARED`;
-    stageClearSub.textContent = GAME.shopUsedThisStage ? "Shop already used this stage." : "Shop available once (after clearing).";
+    stageClearSub.textContent = GAME.shopUsedThisStage
+      ? "Shop already used this stage."
+      : "Shop available once (after clearing).";
     stageClearOverlay.classList.remove("hidden");
   }
 
@@ -627,6 +662,14 @@
     openStageClear();
   }
 
+  function startLoadingNextStage(nextStage) {
+    GAME.mode = "loading";
+    loadingOverlay.classList.remove("hidden");
+    GAME.loadingT = 0;
+    GAME.pendingStage = nextStage;
+    loadingFill.style.width = "0%";
+  }
+
   function togglePause() {
     if (GAME.mode === "menu" || GAME.mode === "stageclear" || GAME.mode === "shop" || GAME.mode === "loading") return;
     if (GAME.mode === "paused") {
@@ -638,7 +681,7 @@
     }
   }
 
-  // ---------- HUD ----------
+  // ---------------- HUD ----------------
   function updateHud() {
     hudStage.textContent = `Level: ${GAME.stage}`;
     hudCoins.textContent = `Coins: ${GAME.coins}`;
@@ -647,7 +690,8 @@
     hudThrow.textContent = player.throwCd > 0 ? "Throw: Cooling" : "Throw: Ready";
   }
 
-  // ---------- Character select ----------
+  // ---------------- Character select ----------------
+  // Edgar is shopkeeper only (NOT playable)
   const PLAYABLE = ["Gilly","Scott","Kevin","Nate"];
   let selectedChar = null;
 
@@ -657,15 +701,17 @@
     for (const name of PLAYABLE) {
       const card = document.createElement("div");
       card.className = "char-card";
+
       const im = document.createElement("img");
       im.alt = name;
-      im.src = (imgs.characters[name] && imgs.characters[name].src) ? imgs.characters[name].src : "";
-      if (!im.src) im.style.background = "rgba(255,255,255,.08)";
+      im.src = imgs[name].src;
 
       const txt = document.createElement("div");
+
       const nm = document.createElement("div");
       nm.className = "char-name";
       nm.textContent = name;
+
       const sub = document.createElement("div");
       sub.className = "small";
       sub.textContent = "Playable";
@@ -688,307 +734,354 @@
     }
   }
 
-  // ---------- Projectiles ----------
+  // ---------------- Projectiles ----------------
   function throwWeapon() {
     if (player.throwCd > 0) return;
-    player.throwCd = 0.45;
+    player.throwCd = 0.35;
 
     GAME.projectiles.push({
-      x: player.x + player.w/2 + player.facing*18,
+      x: player.x + player.w/2 + player.facing*22,
       y: player.y + 18,
       w: 22, h: 22,
-      vx: player.facing * 720,
-      vy: -160,
-      life: 1.1,
+      vx: player.facing * 780,
+      vy: -220,
+      life: 1.6,
       dmg: 2
     });
 
-    if (GAME.stage === 1) { GAME.tutorial.throw = true; setTutState(); }
+    // tutorial check
+    if (GAME.stage === 1 && !GAME.tutorial.throw) {
+      GAME.tutorial.throw = true;
+      setTutorialChecks();
+    }
   }
 
-  // ---------- Exit / Loading ----------
-  function startLoadingNextStage(nextStage) {
-    GAME.mode = "loading";
-    loadingOverlay.classList.remove("hidden");
-    GAME.loadingT = 0;
-    GAME.pendingStage = nextStage;
-    loadingFill.style.width = "0%";
+  // ---------------- Damage ----------------
+  function hurtPlayer(amount) {
+    if (player.invuln > 0) return;
+    player.hp = Math.max(0, player.hp - amount);
+    player.invuln = 0.6;
+    updatePlayerHpHud();
+
+    if (player.hp <= 0) {
+      // restart stage on death
+      loadStage(GAME.stage);
+    }
   }
 
-  // ---------- Update Loop ----------
+  // ---------------- AI (fix enemy tracking) ----------------
+  function enemyThink(e, dt) {
+    e.aiT += dt;
+
+    // Keep them attached to their platform if they have one
+    if (e.platform) {
+      // clamp to platform bounds
+      e.x = clamp(e.x, e.platform.x + 6, e.platform.x + e.platform.w - e.w - 6);
+    }
+
+    // “chase” only if player is close AND same vertical lane (prevents weird climbing/teleport vibes)
+    const dx = (player.x + player.w/2) - (e.x + e.w/2);
+    const absDx = Math.abs(dx);
+    const laneOk = Math.abs((player.y + player.h) - (e.y + e.h)) < 30;
+
+    let wantsChase = absDx < 320 && laneOk;
+
+    // Boss is more aggressive
+    if (e.isBoss && absDx < 520) wantsChase = true;
+
+    const dir = dx < 0 ? -1 : 1;
+
+    // Never let enemies walk off edges (this fixes the “not on platform” and “sliding” issues)
+    if (wantsChase) {
+      // only chase if it won't step into air
+      if (!willStepOff(e, dir)) {
+        e.vx = dir * e.speed;
+        e.facing = dir;
+      } else {
+        // edge reached: stop and “guard”
+        e.vx *= 0.2;
+      }
+    } else {
+      // patrol
+      if (e.x < e.patrolMin) e.facing = 1;
+      if (e.x > e.patrolMax) e.facing = -1;
+
+      if (!willStepOff(e, e.facing)) {
+        e.vx = e.facing * e.speed * 0.75;
+      } else {
+        e.facing *= -1;
+        e.vx = 0;
+      }
+    }
+
+    // Small boss hop occasionally (keeps it spicy but not broken)
+    if (e.isBoss) {
+      e.jumpCd = Math.max(0, e.jumpCd - dt);
+      if (e.jumpCd <= 0 && e.onGround && absDx < 420) {
+        e.vy = -780;
+        e.jumpCd = 2.2;
+      }
+    }
+  }
+
+  // ---------------- Update loop ----------------
   function update(dt) {
-    // loading
+    if (GAME.mode === "paused" || GAME.mode === "menu") return;
+
     if (GAME.mode === "loading") {
       GAME.loadingT += dt;
-      const p = clamp(GAME.loadingT / GAME.loadingDur, 0, 1);
-      loadingFill.style.width = `${Math.floor(p*100)}%`;
-      if (p >= 1) {
+      const t = clamp(GAME.loadingT / GAME.loadingDur, 0, 1);
+      loadingFill.style.width = `${Math.floor(t * 100)}%`;
+
+      if (t >= 1) {
         loadingOverlay.classList.add("hidden");
-        const n = GAME.pendingStage || (GAME.stage + 1);
-        GAME.pendingStage = null;
-        loadStage(n);
+        loadStage(GAME.pendingStage);
       }
       return;
     }
 
-    if (GAME.mode !== "play") return;
+    if (GAME.mode === "stageclear" || GAME.mode === "shop") return;
 
-    // cooldowns
+    // ----- Player cooldowns -----
     player.dashCd = Math.max(0, player.dashCd - dt);
     player.throwCd = Math.max(0, player.throwCd - dt);
+    player.invuln = Math.max(0, player.invuln - dt);
 
-    // movement
-    const speedMax = GAME.speedUnlocked ? 460 : PHYS.maxSpeed;
-    let ax = 0;
-    if (down("ArrowLeft") || down("KeyA")) ax -= 1;
-    if (down("ArrowRight") || down("KeyD")) ax += 1;
+    // ----- Movement input -----
+    let move = 0;
+    if (down("ArrowLeft") || down("KeyA")) move -= 1;
+    if (down("ArrowRight") || down("KeyD")) move += 1;
 
-    if (ax !== 0) {
-      player.facing = ax < 0 ? -1 : 1;
-      player.vx += ax * PHYS.accel * dt;
-      if (GAME.stage === 1) { GAME.tutorial.move = true; setTutState(); }
-    } else if (player.onGround) {
+    if (move !== 0) {
+      player.facing = move;
+      player.vx += move * PHYS.accel * dt;
+    } else {
       player.vx *= PHYS.friction;
-      if (Math.abs(player.vx) < 10) player.vx = 0;
+      if (Math.abs(player.vx) < 8) player.vx = 0;
     }
 
-    player.vx = clamp(player.vx, -speedMax, speedMax);
+    const maxSpeed = PHYS.maxSpeed * (GAME.speedUnlocked ? 1.25 : 1.0);
+    player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
 
-    // jump
+    // Jump
     if ((down("Space") || down("ArrowUp")) && player.onGround) {
       player.vy = -PHYS.jump;
       player.onGround = false;
-      if (GAME.stage === 1) { GAME.tutorial.jump = true; setTutState(); }
-    }
 
-    // dash
-    if (GAME.dashUnlocked && player.dashCd <= 0 && (down("ShiftLeft") || down("ShiftRight"))) {
-      player.vx = player.facing * 820;
-      player.dashCd = 1.15;
-    }
-
-    // throw
-    if (down("KeyF")) throwWeapon();
-
-    // gravity
-    player.vy += PHYS.gravity * dt;
-    resolvePlatformCollisions(player, dt);
-
-    // pickups
-    for (const pk of GAME.pickups) {
-      if (pk.collected) continue;
-      if (rectsOverlap(player, pk)) {
-        pk.collected = true;
-        if (pk.kind === "coin") GAME.coins += (pk.value || 1);
-        if (pk.kind === "dash") GAME.dashUnlocked = true;
-        if (pk.kind === "speed") GAME.speedUnlocked = true;
-        updateHud();
+      if (GAME.stage === 1 && !GAME.tutorial.jump) {
+        GAME.tutorial.jump = true;
+        setTutorialChecks();
       }
     }
 
-    // projectiles
-    for (const pr of GAME.projectiles) {
+    // Dash
+    if (GAME.dashUnlocked && down("ShiftLeft") && player.dashCd <= 0) {
+      player.vx = player.facing * (maxSpeed * 2.2);
+      player.dashCd = 1.0;
+    }
+
+    // Throw
+    if (down("KeyF")) {
+      if (player.throwCd <= 0) {
+        throwWeapon();
+      }
+    }
+
+    // Tutorial move check
+    if (GAME.stage === 1 && !GAME.tutorial.move) {
+      if (Math.abs(player.vx) > 40) {
+        GAME.tutorial.move = true;
+        setTutorialChecks();
+      }
+    }
+
+    // ----- Gravity -----
+    player.vy += PHYS.gravity * dt;
+
+    // ----- Collisions -----
+    resolvePlatformCollisions(player, dt);
+
+    // ----- Pickups -----
+    for (let i = GAME.pickups.length - 1; i >= 0; i--) {
+      const p = GAME.pickups[i];
+      if (rectsOverlap(player, p)) {
+        if (p.kind === "coin") {
+          GAME.coins += p.value;
+          GAME.pickups.splice(i, 1);
+          updateHud();
+        }
+      }
+    }
+
+    // ----- Enemies -----
+    for (let i = GAME.enemies.length - 1; i >= 0; i--) {
+      const e = GAME.enemies[i];
+
+      // Think
+      enemyThink(e, dt);
+
+      // Physics
+      e.vy += PHYS.gravity * dt;
+      resolvePlatformCollisions(e, dt);
+
+      // If anchored to a platform, lock their “ground” to that platform (prevents drift)
+      if (e.platform) {
+        // snap to platform top if close
+        const desiredY = e.platform.y - e.h;
+        if (Math.abs(e.y - desiredY) < 8) {
+          e.y = desiredY;
+          e.vy = 0;
+          e.onGround = true;
+        }
+      }
+
+      // Contact damage
+      if (rectsOverlap(player, e)) {
+        hurtPlayer(e.damage);
+      }
+
+      // Remove dead
+      if (e.hp <= 0) {
+        GAME.enemies.splice(i, 1);
+
+        // If boss died, unlock exit
+        if (GAME.exitLocked && GAME.enemies.every(en => !en.isBoss)) {
+          GAME.exitLocked = false;
+        }
+      }
+    }
+
+    // ----- Projectiles -----
+    for (let i = GAME.projectiles.length - 1; i >= 0; i--) {
+      const pr = GAME.projectiles[i];
       pr.life -= dt;
-      pr.vy += PHYS.gravity * dt * 0.6;
+      pr.vy += PHYS.gravity * 0.55 * dt;
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
 
-      // hit platform => vanish
+      // hit platforms => bounce a bit then die quickly
+      let hitPlat = false;
       for (const p of GAME.platforms) {
         if (rectsOverlap(pr, p)) {
-          pr.life = -1;
+          hitPlat = true;
           break;
         }
+      }
+      if (hitPlat) {
+        pr.vx *= 0.25;
+        pr.vy *= -0.25;
+        pr.life = Math.min(pr.life, 0.25);
       }
 
       // hit enemies
       for (const e of GAME.enemies) {
-        if (e.hp <= 0) continue;
         if (rectsOverlap(pr, e)) {
           e.hp -= pr.dmg;
-          pr.life = -1;
+          pr.life = 0;
           break;
         }
       }
-    }
-    GAME.projectiles = GAME.projectiles.filter(p => p.life > 0);
 
-    // enemies AI (FIXED tracking)
-    let bossAlive = false;
-
-    for (const e of GAME.enemies) {
-      if (e.hp <= 0) continue;
-
-      if (e.isBoss) bossAlive = true;
-
-      e.jumpCd = Math.max(0, (e.jumpCd || 0) - dt);
-
-      const dist = (player.x + player.w/2) - (e.x + e.w/2);
-      const abs = Math.abs(dist);
-
-      const plat = getSupportPlatform(e);
-
-      // edge safe
-      if (plat) {
-        const left = plat.x + 6;
-        const right = plat.x + plat.w - e.w - 6;
-        if (e.x <= left) e.facing = 1;
-        if (e.x >= right) e.facing = -1;
-      }
-
-      if (e.isBoss) {
-        e.vx = clamp(Math.sign(dist) * e.speed, -e.speed, e.speed);
-
-        const playerAbove = (player.y + player.h) < (e.y + e.h - 40);
-        if (playerAbove && abs < 340 && e.onGround && e.jumpCd <= 0) {
-          e.vy = -900;
-          e.jumpCd = 1.05;
-        }
-      } else {
-        const canChase = abs < 320 && sameLane(player, e, 26);
-        if (canChase) e.vx = Math.sign(dist) * e.speed;
-        else {
-          if (e.x < e.patrolMin) e.facing = 1;
-          if (e.x > e.patrolMax) e.facing = -1;
-          e.vx = e.facing * e.speed * 0.85;
-        }
-      }
-
-      // clamp to support platform
-      if (plat) {
-        const minX = plat.x + 4;
-        const maxX = plat.x + plat.w - e.w - 4;
-        if (e.vx < 0 && e.x <= minX) e.vx = Math.abs(e.vx);
-        if (e.vx > 0 && e.x >= maxX) e.vx = -Math.abs(e.vx);
-      }
-
-      e.vy += PHYS.gravity * dt;
-      resolvePlatformCollisions(e, dt);
-
-      // contact damage
-      if (rectsOverlap(player, e)) {
-        const knock = -Math.sign(dist || 1);
-        player.hp -= e.damage;
-        player.vx = knock * 380;
-        player.vy = -420;
-
-        if (player.hp <= 0) {
-          // restart stage on death
-          loadStage(GAME.stage);
-          return;
-        }
-      }
+      if (pr.life <= 0) GAME.projectiles.splice(i, 1);
     }
 
-    // exit locking logic
-    if (GAME.stage === 2) {
-      GAME.exitLocked = bossAlive;
-    } else {
-      GAME.exitLocked = false;
-    }
-
-    // exit check
-    if (GAME.exit && rectsOverlap(player, GAME.exit)) {
-      if (!GAME.exitLocked) {
+    // ----- Exit -----
+    if (GAME.exit && !GAME.exitLocked) {
+      if (rectsOverlap(player, GAME.exit)) {
+        // clear stage
         openStageClear();
       }
     }
 
-    // camera follow
-    GAME.camX = clamp(player.x - VIEW_W * 0.35, 0, Math.max(0, GAME.worldW - VIEW_W));
+    // ----- Camera -----
+    const targetCam = clamp(player.x - VIEW_W * 0.35, 0, Math.max(0, GAME.worldW - VIEW_W));
+    GAME.camX = lerp(GAME.camX, targetCam, 0.08);
 
+    // HUD tick
     updateHud();
   }
 
-  // ---------- Render ----------
+  // ---------------- Render ----------------
   function render() {
-    drawBackground();
+    // Clear
+    ctx.clearRect(0,0,VIEW_W,VIEW_H);
 
+    // Camera
     ctx.save();
     ctx.translate(-GAME.camX, 0);
 
-    // platforms
+    // Background is drawn in screen space (no cam translate), so draw it before translate
+    ctx.restore();
+    drawBackground();
+    ctx.save();
+    ctx.translate(-GAME.camX, 0);
+
+    // Platforms
     for (const p of GAME.platforms) drawPlatform(p);
 
-    // exit
-    if (GAME.exit) {
-      const im = imgs.exit;
-      drawSpriteAnchored(im, GAME.exit.x, GAME.exit.y, GAME.exit.w, GAME.exit.h, SPR_EXIT);
-      if (GAME.exitLocked) {
-        ctx.fillStyle = "rgba(0,0,0,0.55)";
-        ctx.fillRect(GAME.exit.x, GAME.exit.y, GAME.exit.w, GAME.exit.h);
-        ctx.fillStyle = "rgba(255,255,255,0.9)";
-        ctx.font = '12px "Press Start 2P", monospace';
-        ctx.fillText("LOCK", GAME.exit.x + 6, GAME.exit.y + 28);
-      }
+    // Pickups
+    for (const p of GAME.pickups) {
+      if (p.kind === "coin") drawCoin(p);
     }
 
-    // pickups
-    for (const pk of GAME.pickups) {
-      if (pk.collected) continue;
-      let im = null;
-      if (pk.kind === "coin") im = imgs.coin;
-      if (pk.kind === "dash") im = imgs.dash;
-      if (pk.kind === "speed") im = imgs.speed;
+    // Exit
+    if (GAME.exit) drawExit(GAME.exit);
 
-      if (im) ctx.drawImage(im, pk.x, pk.y, pk.w, pk.h);
-      else {
-        ctx.fillStyle = pk.kind === "coin" ? "gold" : "cyan";
-        ctx.beginPath(); ctx.arc(pk.x+pk.w/2, pk.y+pk.h/2, pk.w/2, 0, Math.PI*2); ctx.fill();
-      }
-    }
-
-    // enemies
-    for (const e of GAME.enemies) {
-      if (e.hp <= 0) continue;
-      const im = e.type === "enemy2" ? imgs.enemy2 : imgs.enemy1;
-      drawSpriteAnchored(im, e.x, e.y, e.w, e.h, SPR_ENEMY);
-      drawHPBarWorld(e);
-    }
-
-    // projectiles
+    // Projectiles
     for (const pr of GAME.projectiles) {
-      if (imgs.weapon) ctx.drawImage(imgs.weapon, pr.x, pr.y, pr.w, pr.h);
-      else {
-        ctx.fillStyle = "white";
-        ctx.fillRect(pr.x, pr.y, pr.w, pr.h);
-      }
+      drawAnchored(imgs.Weapon, pr.x, pr.y, pr.w, pr.h, DRAW.weaponScale, 0);
     }
 
-    // player
-    drawSpriteAnchored(imgs.characters[player.char], player.x, player.y, player.w, player.h, SPR_PLAYER);
+    // Enemies + HP
+    for (const e of GAME.enemies) {
+      const im = e.type === "enemy2" ? imgs.Enemy2 : imgs.Enemy1;
+      drawAnchored(im, e.x, e.y, e.w, e.h, DRAW.enemyScale, 4);
+      drawHPBlocks(e);
+    }
+
+    // Player (blink when invuln)
+    const pIm = imgs[player.char];
+    if (player.invuln <= 0 || Math.floor(nowMs()/90)%2===0) {
+      drawAnchored(pIm, player.x, player.y, player.w, player.h, DRAW.playerScale, 6);
+    }
 
     ctx.restore();
-
-    // Player HP top-right
-    drawHPBlocksScreen(VIEW_W - 8*17 - 20, 18, player.maxHp, player.hp);
   }
 
-  // ---------- Loop ----------
+  // ---------------- Loop ----------------
   let last = performance.now();
-  function frame(t) {
-    const dt = clamp((t - last) / 1000, 0, 0.033);
+  function loop(t) {
+    const dt = Math.min(0.033, (t - last) / 1000);
     last = t;
 
     update(dt);
     render();
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(loop);
   }
 
-  // ---------- Buttons ----------
+  // ---------------- UI wiring ----------------
   btnStart.addEventListener("click", () => {
     if (!selectedChar) return;
     loadStage(1);
   });
 
-  btnResume.addEventListener("click", () => togglePause());
-  btnRestart.addEventListener("click", () => loadStage(GAME.stage));
+  btnResume.addEventListener("click", () => {
+    if (GAME.mode === "paused") togglePause();
+  });
+
+  btnRestart.addEventListener("click", () => {
+    loadStage(GAME.stage);
+    pauseOverlay.classList.add("hidden");
+    GAME.mode = "play";
+  });
+
   btnBackMenu.addEventListener("click", () => {
     GAME.mode = "menu";
     hideAllOverlays();
     menuEl.classList.remove("hidden");
-    btnStart.disabled = !selectedChar;
+    btnStart.disabled = true;
+    selectedChar = null;
   });
 
   btnShop.addEventListener("click", () => {
@@ -997,33 +1090,40 @@
     openShop();
   });
 
-  btnShopBack.addEventListener("click", () => closeShopBackToClear());
-
   btnNextStage.addEventListener("click", () => {
-    hideAllOverlays();
     stageClearOverlay.classList.add("hidden");
     startLoadingNextStage(GAME.stage + 1);
   });
 
   btnClearRestart.addEventListener("click", () => {
-    hideAllOverlays();
+    stageClearOverlay.classList.add("hidden");
     loadStage(GAME.stage);
   });
 
-  // ---------- Boot ----------
+  btnShopBack.addEventListener("click", () => {
+    closeShopBackToClear();
+  });
+
+  // ---------------- Boot ----------------
   async function boot() {
+    // Make sure overlays are correct at start (fixes “stuck on shop page”)
+    hideAllOverlays();
+    menuEl.classList.remove("hidden");
+    tutorialBox.classList.add("hidden");
+
     try {
       await loadAllAssets();
-    } catch (e) {
-      console.warn("Asset load had issues:", e);
+    } catch (err) {
+      console.error(err);
+      alert("Asset load failed. Make sure files are in /assets and names match exactly.");
+      return;
     }
 
     buildCharacterGrid();
-    menuEl.classList.remove("hidden"); // always show menu on boot
-    btnStart.disabled = true;
-
     updateHud();
-    requestAnimationFrame(frame);
+    updatePlayerHpHud();
+
+    requestAnimationFrame(loop);
   }
 
   boot();
