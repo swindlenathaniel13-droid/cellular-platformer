@@ -1,19 +1,7 @@
-/* Pixel Platformer - FULL main.js
-
-✅ FIXES INCLUDED:
-1) Procedural levels: ON + infinite (non-boss stages)
-2) "Collision box too big": separate HITBOX size vs DRAW size
-3) "Enemies/players not on platforms": feet-align drawing to hitbox bottom + tiny FOOT_SINK
-
-CONTROLS:
-Move: ←/→ or A/D
-Jump: Space
-Throw: F (homephone weapon)
-Dash: Shift (after dash pickup)
-
-FILES:
-- index.html loads levelgen.js BEFORE main.js
-- assets are in /assets (filenames must match exactly)
+/* Pixel Platformer - main.js
+   ✅ Procedural levels are INSIDE this file (no extra script needed)
+   ✅ Fix “floating”: PLATFORM_SURFACE_Y shifts the collision standing surface
+   ✅ Fix “hitbox too big”: separate DRAW size vs HITBOX size (HITBOX_SCALE)
 */
 
 const ASSETS = {
@@ -35,30 +23,31 @@ const ASSETS = {
   ],
 };
 
-// ---------- Procedural levels ----------
+// -------------------- IMPORTANT TUNING KNOBS --------------------
+// If enemies still look like they float: increase PLATFORM_SURFACE_Y (try 14, 16, 18)
+// If they look sunk into the platform: decrease it (try 8, 6)
+const PLATFORM_SURFACE_Y = 14;
+
+// Visual size vs collision size
+const SPRITE_SCALE = 2.0;   // how big the art is drawn
+const HITBOX_SCALE = 0.72;  // how big the collision box is relative to art (smaller = better)
+
+// Small visual trick: sink the art slightly into the platform surface (does NOT affect collision)
+const FOOT_SINK = 2;
+
+// Procedural controls
 const USE_PROCEDURAL_LEVELS = true;
-const BOSS_EVERY = 3;          // every 3rd stage is boss
-const START_LEVEL_INDEX = 0;   // change to 2 to start directly on boss level for testing
+const BOSS_EVERY = 3;           // every 3rd level is a boss level
+const START_LEVEL_INDEX = 0;    // set to 2 to jump straight to a boss test
 
-function getRunSeed(){
-  const s = new URLSearchParams(location.search).get("seed");
-  const n = Number(s);
-  if (Number.isFinite(n)) return n;
-  return Math.floor(Math.random() * 1e9);
-}
-const RUN_SEED = getRunSeed();
+// Optional: show hitboxes (debug)
+const DEBUG_HITBOX = false;
+// ---------------------------------------------------------------
 
-function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-function aabb(a, b){
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-}
-
-// ---------- Canvas ----------
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-// ---------- UI ----------
 const menuEl = document.getElementById("menu");
 const charGridEl = document.getElementById("charGrid");
 const startBtn = document.getElementById("startBtn");
@@ -70,7 +59,183 @@ const hudDash = document.getElementById("hudDash");
 const hudSpeed = document.getElementById("hudSpeed");
 const hudThrow = document.getElementById("hudThrow");
 
-// ---------- Loading ----------
+function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+function aabb(a, b){
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// -------------------- RNG + Procedural Level Gen (inside main.js) --------------------
+function mulberry32(seed){
+  let t = seed >>> 0;
+  return function(){
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rInt(rng, min, max){ return Math.floor(rng() * (max - min + 1)) + min; }
+function pick(rng, arr){ return arr[rInt(rng, 0, arr.length - 1)]; }
+
+function getRunSeed(){
+  const s = new URLSearchParams(location.search).get("seed");
+  const n = Number(s);
+  if (Number.isFinite(n)) return n;
+  return Math.floor(Math.random() * 1e9);
+}
+const RUN_SEED = getRunSeed();
+
+// Generates a guaranteed-beatable “staircase” course.
+// NOTE: Platforms use y as the TOP of the image. Collision surface is y + PLATFORM_SURFACE_Y.
+function generateProceduralLevel(levelIndex){
+  const rng = mulberry32((RUN_SEED + levelIndex * 10007) >>> 0);
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  const groundY = 460; // platform image top
+  const platforms = [{ x: 0, y: groundY, w: W, h: 80 }];
+
+  const difficulty = 1 + Math.floor(levelIndex / BOSS_EVERY);
+  const steps = clamp(6 + Math.floor(difficulty * 0.8), 6, 10);
+
+  let x = 120;
+  let y = 400;
+
+  for (let i=0;i<steps;i++){
+    const w = rInt(rng, 170, 280);
+    const h = 28;
+
+    // keep jumps safe: gaps 90..150, vertical shift -60..40
+    x += rInt(rng, 95, 145);
+    y = clamp(y + rInt(rng, -60, 40), 220, 410);
+
+    if (x + w > W - 40) x = (W - 40) - w;
+    x = clamp(x, 40, W - w - 40);
+
+    platforms.push({ x, y, w, h });
+  }
+
+  const spawn = { x: 70, y: 380 };
+
+  const last = platforms[platforms.length - 1];
+  const exit = {
+    x: Math.floor(last.x + last.w - 54),
+    y: Math.floor(last.y + PLATFORM_SURFACE_Y - 56) // place on the surface
+  };
+
+  const mid = platforms[Math.floor(platforms.length / 2)];
+  const checkpoint = {
+    x: Math.floor(mid.x + mid.w * 0.5),
+    y: Math.floor(mid.y + PLATFORM_SURFACE_Y - 50)
+  };
+
+  // coins above platforms
+  const coins = [];
+  platforms.slice(1).forEach((p, idx) => {
+    const n = rInt(rng, 1, 3);
+    const surface = p.y + PLATFORM_SURFACE_Y;
+    for (let j=0;j<n;j++){
+      coins.push({
+        x: Math.floor(p.x + (p.w/(n+1))*(j+1) - 10),
+        y: Math.floor(surface - 34 - (idx % 2)*6)
+      });
+    }
+  });
+
+  // pickups
+  const pickups = [];
+  if (platforms.length > 2){
+    const p = platforms[2];
+    const surface = p.y + PLATFORM_SURFACE_Y;
+    pickups.push({ kind:"dash", x: Math.floor(p.x + p.w*0.5), y: Math.floor(surface - 35) });
+  }
+  if (platforms.length > 4){
+    const p = platforms[platforms.length - 3];
+    const surface = p.y + PLATFORM_SURFACE_Y;
+    pickups.push({ kind:"speed", x: Math.floor(p.x + p.w*0.5), y: Math.floor(surface - 35) });
+  }
+
+  // enemies patrol on a few platforms
+  const enemies = [];
+  const enemyCount = clamp(1 + Math.floor(difficulty * 1.2), 1, 6);
+  const pads = platforms.slice(2, -1);
+
+  for (let i=0;i<enemyCount;i++){
+    const p = pick(rng, pads);
+    const surface = p.y + PLATFORM_SURFACE_Y;
+
+    const type = rng() < 0.55 ? "enemy1" : "enemy2";
+    const hpBase = type === "enemy1" ? 2 : 3;
+    const hp = hpBase + Math.floor(difficulty / 2);
+
+    enemies.push({
+      type,
+      x: Math.floor(p.x + rInt(rng, 10, Math.max(10, p.w - 60))),
+      y: Math.floor(surface - 60), // will snap anyway
+      left: Math.floor(p.x + 6),
+      right: Math.floor(p.x + p.w - 6),
+      hp
+    });
+  }
+
+  return {
+    name: `Procedural ${difficulty}`,
+    spawn,
+    exit,
+    exitLocked: false,
+    checkpoint,
+    platforms,
+    enemies,
+    coins,
+    pickups,
+    boss: null
+  };
+}
+// -------------------------------------------------------------------------------
+
+// -------------------- Static Boss Template --------------------
+const BOSS_LEVEL_TEMPLATE = {
+  name: "Boss: Signal Tyrant",
+  spawn: { x: 70, y: 380 },
+  exit:  { x: 890, y: 395 },
+  exitLocked: true,
+  checkpoint: { x: 160, y: 395 },
+  platforms: [
+    { x: 0, y: 460, w: 960, h: 80 },
+    { x: 150, y: 360, w: 140, h: 28 },
+    { x: 360, y: 320, w: 150, h: 28 },
+    { x: 590, y: 320, w: 150, h: 28 },
+    { x: 790, y: 360, w: 140, h: 28 },
+  ],
+  enemies: [],
+  coins: [
+    { x: 180, y: 330 }, { x: 400, y: 290 }, { x: 640, y: 290 }, { x: 820, y: 330 }
+  ],
+  pickups: [
+    { kind:"dash",  x: 360, y: 285 },
+    { kind:"speed", x: 590, y: 285 },
+  ],
+  boss: {
+    type: "enemy2",
+    hp: 22,
+    x: 720,
+    y: 330,
+    left: 520,
+    right: 900
+  }
+};
+
+function getLevel(idx){
+  if (!USE_PROCEDURAL_LEVELS) {
+    // fallback: just loop the boss template after a couple levels if you disable procedural
+    return (idx % BOSS_EVERY) === (BOSS_EVERY - 1) ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
+  }
+  const isBoss = (idx % BOSS_EVERY) === (BOSS_EVERY - 1);
+  return isBoss ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
+}
+
+// -------------------- Asset Loading --------------------
 function loadImage(src){
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -79,7 +244,6 @@ function loadImage(src){
     img.src = src;
   });
 }
-
 let images = {};
 async function loadAll(){
   const entries = [
@@ -100,7 +264,7 @@ async function loadAll(){
   images = Object.fromEntries(loaded);
 }
 
-// ---------- Input ----------
+// -------------------- Input --------------------
 const KEYS = { left:false, right:false, jump:false, dash:false, throw:false };
 window.addEventListener("keydown", (e) => {
   if (["ArrowLeft","KeyA"].includes(e.code)) KEYS.left = true;
@@ -117,113 +281,7 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyF") KEYS.throw = false;
 });
 
-// ---------- LEVELS (Static templates) ----------
-const STATIC_LEVELS = [
-  {
-    name: "Rooftop Relay",
-    spawn: { x: 70, y: 380 },
-    exit:  { x: 880, y: 395 },
-    exitLocked: false,
-    checkpoint: { x: 470, y: 395 },
-    platforms: [
-      { x: 0, y: 460, w: 960, h: 80 },
-      { x: 140, y: 380, w: 220, h: 28 },
-      { x: 420, y: 320, w: 180, h: 28 },
-      { x: 650, y: 360, w: 200, h: 28 },
-      { x: 780, y: 290, w: 140, h: 28 },
-    ],
-    enemies: [
-      { type:"enemy1", x: 200, y: 330, left: 150, right: 340, hp: 2 },
-      { type:"enemy2", x: 720, y: 310, left: 650, right: 840, hp: 3 },
-    ],
-    coins: [
-      { x: 170, y: 340 }, { x: 210, y: 340 }, { x: 250, y: 340 },
-      { x: 460, y: 280 }, { x: 500, y: 280 },
-      { x: 820, y: 250 },
-    ],
-    pickups: [
-      { kind:"dash",  x: 440, y: 285 },
-      { kind:"speed", x: 820, y: 260 },
-    ],
-    boss: null
-  },
-  {
-    name: "Circuit Steps",
-    spawn: { x: 60, y: 380 },
-    exit:  { x: 900, y: 170 },
-    exitLocked: false,
-    checkpoint: { x: 520, y: 240 },
-    platforms: [
-      { x: 0, y: 460, w: 960, h: 80 },
-      { x: 120, y: 400, w: 160, h: 28 },
-      { x: 310, y: 350, w: 160, h: 28 },
-      { x: 500, y: 300, w: 180, h: 28 },
-      { x: 710, y: 250, w: 180, h: 28 },
-      { x: 760, y: 190, w: 160, h: 28 },
-    ],
-    enemies: [
-      { type:"enemy2", x: 320, y: 300, left: 310, right: 450, hp: 3 },
-      { type:"enemy1", x: 520, y: 250, left: 500, right: 670, hp: 2 },
-      { type:"enemy2", x: 740, y: 200, left: 710, right: 880, hp: 4 },
-    ],
-    coins: [
-      { x: 150, y: 360 }, { x: 190, y: 360 },
-      { x: 340, y: 310 }, { x: 380, y: 310 },
-      { x: 540, y: 260 }, { x: 580, y: 260 },
-      { x: 760, y: 210 }, { x: 800, y: 210 }, { x: 840, y: 210 }
-    ],
-    pickups: [
-      { kind:"speed", x: 530, y: 265 },
-    ],
-    boss: null
-  },
-  {
-    name: "Boss: Signal Tyrant",
-    spawn: { x: 70, y: 380 },
-    exit:  { x: 890, y: 395 },
-    exitLocked: true,
-    checkpoint: { x: 160, y: 395 },
-    platforms: [
-      { x: 0, y: 460, w: 960, h: 80 },
-      { x: 150, y: 360, w: 140, h: 28 },
-      { x: 360, y: 320, w: 150, h: 28 },
-      { x: 590, y: 320, w: 150, h: 28 },
-      { x: 790, y: 360, w: 140, h: 28 },
-    ],
-    enemies: [],
-    coins: [
-      { x: 180, y: 330 }, { x: 400, y: 290 }, { x: 640, y: 290 }, { x: 820, y: 330 }
-    ],
-    pickups: [
-      { kind:"dash",  x: 360, y: 285 },
-      { kind:"speed", x: 590, y: 285 },
-    ],
-    boss: {
-      type: "enemy2",
-      hp: 22,
-      x: 720,
-      y: 330,
-      left: 520,
-      right: 900
-    }
-  }
-];
-
-function getLevel(idx){
-  if (!USE_PROCEDURAL_LEVELS) return STATIC_LEVELS[idx % STATIC_LEVELS.length];
-
-  // boss stage pattern
-  if ((idx % BOSS_EVERY) === (BOSS_EVERY - 1)) return STATIC_LEVELS[2];
-
-  const difficulty = 1 + Math.floor(idx / BOSS_EVERY);
-  return window.LevelGen.generateLevel(RUN_SEED + idx * 10007, difficulty, canvas.width, canvas.height);
-}
-
-// ---------- Sizing: DRAW big, HITBOX smaller ----------
-const SPRITE_SCALE = 2.0;       // visual size (bigger = bigger character art)
-const HITBOX_SCALE = 0.78;      // collision size vs visual (smaller = fairer hitbox)
-const FOOT_SINK = 2;            // pixels to sink sprite into platform visually (no collision change)
-
+// -------------------- Sizes: DRAW big, HITBOX smaller --------------------
 const BASE = {
   player: { w: 34, h: 48 },
   enemy:  { w: 40, h: 40 },
@@ -242,20 +300,19 @@ const PLAYER_SZ = makeSizes(BASE.player);
 const ENEMY_SZ  = makeSizes(BASE.enemy);
 const BOSS_SZ   = makeSizes(BASE.boss);
 
-// projectiles should feel “real” but not huge
 const PHONE_DW = Math.round(BASE.phone.w * SPRITE_SCALE);
 const PHONE_DH = Math.round(BASE.phone.h * SPRITE_SCALE);
 const PHONE_W  = Math.round(PHONE_DW * 0.85);
 const PHONE_H  = Math.round(PHONE_DH * 0.85);
 
-// render helpers: align sprite feet to hitbox bottom
+// Align sprite feet to hitbox bottom
 function renderRect(ent){
   const dx = ent.x - Math.floor((ent.dw - ent.w)/2);
   const dy = ent.y - (ent.dh - ent.h) + FOOT_SINK;
   return { x: dx, y: dy, w: ent.dw, h: ent.dh };
 }
 
-// ---------- Game State ----------
+// -------------------- State --------------------
 let selectedCharId = null;
 
 const state = {
@@ -267,7 +324,8 @@ const state = {
 };
 
 const player = {
-  x: 60, y: 380, w: PLAYER_SZ.w, h: PLAYER_SZ.h, dw: PLAYER_SZ.dw, dh: PLAYER_SZ.dh,
+  x: 60, y: 380,
+  w: PLAYER_SZ.w, h: PLAYER_SZ.h, dw: PLAYER_SZ.dw, dh: PLAYER_SZ.dh,
   vx: 0, vy: 0,
   facing: 1,
   onGround: false,
@@ -283,7 +341,8 @@ const player = {
   deadTimer: 0,
 };
 
-let platforms = [];
+let platforms = [];      // for drawing
+let solids = [];         // for collision (surface offset applied)
 let enemies = [];
 let coins = [];
 let pickups = [];
@@ -296,13 +355,46 @@ let boss = null;
 let bossProjectiles = [];
 let bossWaves = [];
 
-// ---------- Utilities ----------
+// -------------------- Helpers --------------------
 function setToast(text, frames = 120){
   state.toast.text = text;
   state.toast.t = frames;
 }
 function updateToast(){
   if (state.toast.t > 0) state.toast.t--;
+}
+
+// Collision solids use platform surface offset
+function rebuildSolids(){
+  solids = platforms.map(p => {
+    const y = p.y + PLATFORM_SURFACE_Y;
+    const h = Math.max(4, p.h - PLATFORM_SURFACE_Y);
+    return { x: p.x, y, w: p.w, h };
+  });
+}
+
+// Snap entity to the collision surface
+function snapToSurface(ent){
+  const cx = ent.x + ent.w/2;
+  let best = null;
+  let bestDy = Infinity;
+
+  for (let i=0;i<solids.length;i++){
+    const s = solids[i];
+    if (cx < s.x || cx > s.x + s.w) continue;
+    const targetY = s.y - ent.h;
+    const dy = Math.abs(ent.y - targetY);
+    if (dy < bestDy){
+      bestDy = dy;
+      best = s;
+    }
+  }
+
+  if (best){
+    ent.y = best.y - ent.h;
+    ent.vy = 0;
+    ent.onGround = true;
+  }
 }
 
 function damagePlayer(amount, knockDir = 0){
@@ -338,7 +430,7 @@ function respawnPlayer(){
   bossProjectiles = [];
   bossWaves = [];
 
-  snapToPlatformTop(player);
+  snapToSurface(player);
 }
 
 function unlockExit(){
@@ -348,37 +440,15 @@ function unlockExit(){
   setToast("EXIT UNLOCKED!", 120);
 }
 
-// Snap ANY entity to the platform below them (by x overlap + nearest below)
-function snapToPlatformTop(ent){
-  const cx = ent.x + ent.w/2;
-  let best = null;
-  let bestDy = Infinity;
-
-  for (const p of platforms){
-    if (cx < p.x || cx > p.x + p.w) continue;
-    const dy = Math.abs((p.y - ent.h) - ent.y);
-    if (dy < bestDy){
-      bestDy = dy;
-      best = p;
-    }
-  }
-
-  if (best){
-    ent.y = best.y - ent.h;
-    ent.vy = 0;
-    ent.onGround = true;
-  }
-}
-
-// ---------- Physics ----------
+// -------------------- Physics --------------------
 const GRAVITY = 0.55;
 const JUMP_V = -11.5;
 const BASE_SPEED = 3.2;
 const MAX_FALL = 14;
 
-function moveAndCollide(ent, solids){
+function moveAndCollide(ent, solidList){
   ent.x += ent.vx;
-  for (const s of solids){
+  for (const s of solidList){
     if (!aabb(ent, s)) continue;
     if (ent.vx > 0){
       ent.x = s.x - ent.w;
@@ -391,7 +461,7 @@ function moveAndCollide(ent, solids){
 
   ent.y += ent.vy;
   ent.onGround = false;
-  for (const s of solids){
+  for (const s of solidList){
     if (!aabb(ent, s)) continue;
     if (ent.vy > 0){
       ent.y = s.y - ent.h;
@@ -404,7 +474,7 @@ function moveAndCollide(ent, solids){
   }
 }
 
-// ---------- Level Reset ----------
+// -------------------- Level Reset --------------------
 function resetToLevel(idx){
   state.levelIndex = idx;
   const L = getLevel(idx);
@@ -413,6 +483,7 @@ function resetToLevel(idx){
   state.respawn = { x: L.spawn.x, y: L.spawn.y };
 
   platforms = (L.platforms || []).map(p => ({...p}));
+  rebuildSolids();
 
   // player
   player.x = L.spawn.x;
@@ -428,23 +499,23 @@ function resetToLevel(idx){
   pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
   projectiles = [];
 
-  // exit/checkpoint
+  // exit/checkpoint (place them visually; collisions use their own boxes)
   exitDoor = { x: L.exit.x, y: L.exit.y, w: 44, h: 56, locked: !!L.exitLocked };
   checkpoint = { x: L.checkpoint.x, y: L.checkpoint.y, w: 28, h: 50, active:false };
 
-  // enemies (hitbox small, draw big)
+  // enemies
   enemies = (L.enemies || []).map(e => ({
     ...e,
     w: ENEMY_SZ.w, h: ENEMY_SZ.h, dw: ENEMY_SZ.dw, dh: ENEMY_SZ.dh,
     vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
     vy: 0,
     maxHp: e.hp,
-
-    // patrol bounds adjusted so enemy doesn't clip off platform
+    // patrol bounds (hitbox-based)
     left: e.left,
-    right: e.right - ENEMY_SZ.w
+    right: Math.max(e.left + 10, e.right - ENEMY_SZ.w)
   }));
 
+  // boss
   bossProjectiles = [];
   bossWaves = [];
   boss = null;
@@ -472,24 +543,23 @@ function resetToLevel(idx){
     setToast("BOSS APPROACHING", 90);
   }
 
-  // IMPORTANT: snap everyone onto platforms so they don't float
-  snapToPlatformTop(player);
-  for (const e of enemies) snapToPlatformTop(e);
-  if (boss) snapToPlatformTop(boss);
+  // snap everybody to correct platform surface
+  snapToSurface(player);
+  for (const e of enemies) snapToSurface(e);
+  if (boss) snapToSurface(boss);
 }
 
 function nextLevel(){
   resetToLevel(state.levelIndex + 1);
 }
 
-// ---------- Player Update ----------
+// -------------------- Player Update --------------------
 function updatePlayer(){
   if (player.deadTimer > 0){
     player.deadTimer--;
     if (player.deadTimer === 0) respawnPlayer();
     return;
   }
-
   if (player.invuln > 0) player.invuln--;
 
   const speedMult = player.speedBoostTimer > 0 ? 1.55 : 1.0;
@@ -533,20 +603,18 @@ function updatePlayer(){
   }
 
   player.vy = clamp(player.vy + GRAVITY, -50, MAX_FALL);
-  moveAndCollide(player, platforms);
+  moveAndCollide(player, solids);
 
   if (player.y > canvas.height + 200){
     player.hp = 0;
     killPlayer();
   }
 
-  // checkpoint
   if (checkpoint && aabb(player, checkpoint)){
     checkpoint.active = true;
     state.respawn = { x: checkpoint.x, y: checkpoint.y - 20 };
   }
 
-  // pickups
   for (const p of pickups){
     if (p.taken) continue;
     const box = { x:p.x, y:p.y, w:p.w, h:p.h };
@@ -556,7 +624,6 @@ function updatePlayer(){
     if (p.kind === "speed") player.speedBoostTimer = 60 * 8;
   }
 
-  // coins
   for (const c of coins){
     if (c.taken) continue;
     const box = { x:c.x, y:c.y, w:c.w, h:c.h };
@@ -565,13 +632,12 @@ function updatePlayer(){
     state.coins++;
   }
 
-  // exit
   if (exitDoor && aabb(player, exitDoor)){
     if (!exitDoor.locked) nextLevel();
   }
 }
 
-// ---------- Enemies ----------
+// -------------------- Enemies --------------------
 function updateEnemies(){
   for (const e of enemies){
     e.x += e.vx;
@@ -580,7 +646,7 @@ function updateEnemies(){
 
     e.vy = (e.vy ?? 0) + GRAVITY;
     const ent = { x:e.x, y:e.y, w:e.w, h:e.h, vx:0, vy:e.vy, onGround:false };
-    moveAndCollide(ent, platforms);
+    moveAndCollide(ent, solids);
     e.y = ent.y;
     e.vy = ent.vy;
 
@@ -592,7 +658,7 @@ function updateEnemies(){
   enemies = enemies.filter(e => e.hp > 0);
 }
 
-// ---------- Projectiles (homephone) ----------
+// -------------------- Projectiles --------------------
 function updateProjectiles(){
   for (const pr of projectiles){
     pr.x += pr.vx;
@@ -600,19 +666,13 @@ function updateProjectiles(){
     pr.vy += 0.15;
     pr.life--;
 
-    for (const s of platforms){
-      if (aabb(pr, s)){
-        pr.life = 0;
-        break;
-      }
+    for (const s of solids){
+      if (aabb(pr, s)){ pr.life = 0; break; }
     }
 
     for (const e of enemies){
       if (pr.life <= 0) break;
-      if (aabb(pr, e)){
-        e.hp -= 1;
-        pr.life = 0;
-      }
+      if (aabb(pr, e)){ e.hp -= 1; pr.life = 0; }
     }
 
     if (boss && boss.hp > 0 && pr.life > 0){
@@ -631,7 +691,7 @@ function updateProjectiles(){
   projectiles = projectiles.filter(p => p.life > 0);
 }
 
-// ---------- Boss ----------
+// -------------------- Boss --------------------
 function spawnBossBullet(x, y, vx, vy){
   bossProjectiles.push({ x, y, w: 14, h: 14, vx, vy, life: 150 });
 }
@@ -643,13 +703,9 @@ function spawnShockwave(){
 }
 function bossChooseNext(){
   const r = Math.random();
-  if (r < 0.40){
-    boss.mode = "shoot"; boss.t = 85;
-  } else if (r < 0.72){
-    boss.mode = "slam"; boss.t = 70; boss.didJump = false;
-  } else {
-    boss.mode = "chargeWindup"; boss.t = 28; boss.bounces = 1;
-  }
+  if (r < 0.40){ boss.mode = "shoot"; boss.t = 85; }
+  else if (r < 0.72){ boss.mode = "slam"; boss.t = 70; boss.didJump = false; }
+  else { boss.mode = "chargeWindup"; boss.t = 28; boss.bounces = 1; }
 }
 function updateBoss(){
   if (!boss || boss.hp <= 0) return;
@@ -722,7 +778,7 @@ function updateBoss(){
   }
 
   const ent = { x: boss.x, y: boss.y, w: boss.w, h: boss.h, vx: boss.vx, vy: boss.vy, onGround:false };
-  moveAndCollide(ent, platforms);
+  moveAndCollide(ent, solids);
   boss.x = ent.x; boss.y = ent.y; boss.vx = ent.vx; boss.vy = ent.vy; boss.onGround = ent.onGround;
 
   if (aabb(player, boss)){
@@ -733,7 +789,7 @@ function updateBoss(){
 function updateBossProjectiles(){
   for (const pr of bossProjectiles){
     pr.x += pr.vx; pr.y += pr.vy; pr.vy += 0.05; pr.life--;
-    for (const s of platforms){ if (aabb(pr, s)){ pr.life = 0; break; } }
+    for (const s of solids){ if (aabb(pr, s)){ pr.life = 0; break; } }
     if (pr.life > 0 && player.deadTimer === 0 && aabb(player, pr)){
       const knock = pr.vx < 0 ? -1 : 1;
       damagePlayer(1, knock);
@@ -745,7 +801,7 @@ function updateBossProjectiles(){
 function updateBossWaves(){
   for (const w of bossWaves){
     w.x += w.vx; w.life--;
-    for (const s of platforms){ if (aabb(w, s)){ w.life = 0; break; } }
+    for (const s of solids){ if (aabb(w, s)){ w.life = 0; break; } }
     if (w.life > 0 && player.deadTimer === 0 && aabb(player, w)){
       const knock = w.vx < 0 ? -1 : 1;
       damagePlayer(1, knock);
@@ -755,7 +811,7 @@ function updateBossWaves(){
   bossWaves = bossWaves.filter(w => w.life > 0);
 }
 
-// ---------- HUD ----------
+// -------------------- HUD --------------------
 function updateHUD(){
   hudCoins.textContent = String(state.coins);
   hudDash.textContent = player.canDash ? (player.dashCooldown === 0 ? "Ready" : "Cooling") : "No";
@@ -763,7 +819,7 @@ function updateHUD(){
   hudThrow.textContent = player.throwCooldown === 0 ? "Ready" : "Cooling";
 }
 
-// ---------- 8-bit HP Bars ----------
+// -------------------- 8-bit HP Bars --------------------
 function drawPixelFrame(x, y, w, h){
   ctx.fillStyle = "#000"; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = "#fff"; ctx.fillRect(x+1, y+1, w-2, h-2);
@@ -801,11 +857,6 @@ function drawPlayerHP(){
   drawPixelFrame(x, y, frameW, frameH);
   drawSegmentBar(x+4, y+4, segments, filled, segW, segH, gap);
   drawLabel("HP", x + frameW - 2, y + frameH + 14, "right");
-
-  if (player.invuln > 0 && (player.invuln % 10) < 5){
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(x + frameW - 10, y - 6, 8, 4);
-  }
 }
 function drawEnemyHP(ent){
   if (!ent.maxHp || ent.maxHp <= 1) return;
@@ -818,7 +869,6 @@ function drawEnemyHP(ent){
   const frameW = innerW + 6;
   const frameH = segH + 6;
 
-  // place above sprite render rect, not hitbox
   const rr = renderRect(ent);
   const x = Math.floor(rr.x + rr.w/2 - frameW/2);
   const y = Math.floor(rr.y - frameH - 6);
@@ -860,7 +910,7 @@ function drawToast(){
   ctx.restore();
 }
 
-// ---------- Rendering ----------
+// -------------------- Rendering --------------------
 function drawTiledPlatform(rect){
   const img = images.platform;
   const tileH = rect.h;
@@ -884,6 +934,13 @@ function drawEntity(img, ent, facing=1, blink=false){
     ctx.drawImage(img, rr.x, rr.y, rr.w, rr.h);
   }
   ctx.restore();
+
+  if (DEBUG_HITBOX){
+    ctx.save();
+    ctx.strokeStyle = "#ff00ff";
+    ctx.strokeRect(ent.x, ent.y, ent.w, ent.h);
+    ctx.restore();
+  }
 }
 
 function draw(){
@@ -891,6 +948,19 @@ function draw(){
   ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
 
   for (const p of platforms) drawTiledPlatform(p);
+
+  // show the collision surface line (debug)
+  if (DEBUG_HITBOX){
+    ctx.save();
+    ctx.strokeStyle = "#00ffff";
+    for (const s of solids){
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x + s.w, s.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   if (exitDoor){
     ctx.globalAlpha = exitDoor.locked ? 0.45 : 1.0;
@@ -948,19 +1018,14 @@ function draw(){
   }
 
   const pImg = images[`char_${selectedCharId}`];
-  if (pImg){
-    const blink = player.invuln > 0 && (player.invuln % 10) < 5;
-    drawEntity(pImg, player, player.facing, blink);
-  } else {
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(player.x, player.y, player.w, player.h);
-  }
+  const blink = player.invuln > 0 && (player.invuln % 10) < 5;
+  drawEntity(pImg, player, player.facing, blink);
 
   drawPlayerHP();
   drawToast();
 }
 
-// ---------- Character Select ----------
+// -------------------- Character Select --------------------
 function buildCharacterMenu(){
   charGridEl.innerHTML = "";
   ASSETS.chars.forEach((c) => {
@@ -993,7 +1058,7 @@ function buildCharacterMenu(){
   });
 }
 
-// ---------- Start / Loop ----------
+// -------------------- Start / Loop --------------------
 function startGame(){
   state.running = true;
   menuEl.classList.add("hidden");
@@ -1012,6 +1077,7 @@ startBtn.addEventListener("click", startGame);
 let last = performance.now();
 function loop(now){
   last = now;
+
   if (state.running){
     updatePlayer();
     updateEnemies();
@@ -1026,10 +1092,11 @@ function loop(now){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     if (images.bg) ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
   }
+
   requestAnimationFrame(loop);
 }
 
-// ---------- Boot ----------
+// -------------------- Boot --------------------
 (async function init(){
   buildCharacterMenu();
   try{
