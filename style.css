@@ -14,7 +14,13 @@ body{
   color:var(--text);
 }
 
-.wrap{max-width:1100px;margin:0 auto;padding:16px}
+/* UPDATED: make the whole game area bigger on desktop */
+.wrap{
+  width: min(98vw, 1600px);
+  margin: 0 auto;
+  padding: 12px;
+}
+
 .topbar{
   display:flex; gap:12px; align-items:baseline; justify-content:space-between;
   padding:12px 14px;
@@ -34,9 +40,12 @@ body{
   gap:12px;
 }
 
+/* UPDATED: let the canvas fill more of the screen vertically too */
 canvas{
   width:100%;
   height:auto;
+  max-height: 78vh;
+  aspect-ratio: 16 / 9;
   border-radius:16px;
   border:1px solid rgba(122,167,255,.25);
   background:#000;
@@ -117,4 +126,3 @@ canvas{
   font-size:12px;
   text-align:center;
 }
-
