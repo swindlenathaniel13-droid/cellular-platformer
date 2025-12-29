@@ -6,7 +6,8 @@
    - Platform tiles are walkable geometry
    - Powerups: Dash, Speedboost
    - Weapon: powerup_homephone.png = thrown projectile
-   - NEW: 8-bit segmented HP bars for player + all enemies
+   - 8-bit segmented HP bars for player + all enemies
+   - NEW: sprite scaling + snapping so characters/enemies look "on" platforms
 */
 
 const ASSETS = {
@@ -80,6 +81,7 @@ async function loadAll(){
   images = Object.fromEntries(loaded);
 }
 
+// --- Input ---
 const KEYS = { left:false, right:false, jump:false, dash:false, throw:false };
 window.addEventListener("keydown", (e) => {
   if (["ArrowLeft","KeyA"].includes(e.code)) KEYS.left = true;
@@ -96,7 +98,7 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyF") KEYS.throw = false;
 });
 
-// --- Level data ---
+// --- Levels (static for now) ---
 const LEVELS = [
   {
     name: "Rooftop Relay",
@@ -188,10 +190,8 @@ const LEVELS = [
   }
 ];
 
-// --- Game state ---
-let selectedCharId = null;
 // --- Sprite scaling (make characters/enemies feel like they belong in the world) ---
-const SPRITE_SCALE = 1.8; // try 2.0 if you want even bigger
+const SPRITE_SCALE = 1.8; // try 2.0 for even bigger
 
 const PLAYER_BASE = { w: 34, h: 48 };
 const ENEMY_BASE  = { w: 40, h: 40 };
@@ -203,30 +203,11 @@ const ENEMY_SIZE  = { w: Math.round(ENEMY_BASE.w  * SPRITE_SCALE), h: Math.round
 const BOSS_SIZE   = { w: Math.round(BOSS_BASE.w   * SPRITE_SCALE), h: Math.round(BOSS_BASE.h   * SPRITE_SCALE) };
 const PHONE_SIZE  = { w: Math.round(PHONE_BASE.w  * SPRITE_SCALE), h: Math.round(PHONE_BASE.h  * SPRITE_SCALE) };
 
-// Visual tweak: draw sprites slightly LOWER so feet sit on the platform art better
+// Visual: draw sprites slightly LOWER so feet sit on platform art better
 const SPRITE_RENDER_Y_OFFSET = Math.round(6 * SPRITE_SCALE);
 
-// Snap helper: place an entity ON the nearest platform top (by X), near a preferred foot Y
-function snapEntityToNearestPlatform(ent, preferredFootY){
-  const cx = ent.x + ent.w / 2;
-  let best = null;
-  let bestDist = Infinity;
-
-  for (const p of platforms){
-    if (cx < p.x || cx > p.x + p.w) continue;
-    const dist = Math.abs(p.y - preferredFootY);
-    if (dist < bestDist){
-      bestDist = dist;
-      best = p;
-    }
-  }
-
-  if (best){
-    ent.y = best.y - ent.h;
-    ent.vy = 0;
-    ent.onGround = true;
-  }
-}
+// --- Game state ---
+let selectedCharId = null;
 
 const state = {
   running: false,
@@ -238,12 +219,12 @@ const state = {
 };
 
 const player = {
-  x: 60, y: 380, w: 34, h: 48,
+  x: 60, y: 380, w: PLAYER_SIZE.w, h: PLAYER_SIZE.h,
   vx: 0, vy: 0,
   facing: 1,
   onGround: false,
 
-  // NEW: health
+  // health
   maxHp: 6,
   hp: 6,
   invuln: 0,
@@ -268,6 +249,28 @@ let boss = null;
 let bossProjectiles = [];
 let bossWaves = [];
 
+// Snap helper: place an entity ON the nearest platform top (by X), near a preferred foot Y
+function snapEntityToNearestPlatform(ent, preferredFootY){
+  const cx = ent.x + ent.w / 2;
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const p of platforms){
+    if (cx < p.x || cx > p.x + p.w) continue;
+    const dist = Math.abs(p.y - preferredFootY);
+    if (dist < bestDist){
+      bestDist = dist;
+      best = p;
+    }
+  }
+
+  if (best){
+    ent.y = best.y - ent.h;
+    ent.vy = 0;
+    ent.onGround = true;
+  }
+}
+
 function setToast(text, frames = 120){
   state.toast.text = text;
   state.toast.t = frames;
@@ -280,7 +283,6 @@ function damagePlayer(amount, knockDir = 0){
   player.hp -= amount;
   player.invuln = 45;
 
-  // tiny knockback for "arcade feel"
   if (knockDir !== 0){
     player.vx = 6.5 * knockDir;
     player.vy = Math.min(player.vy, -5.5);
@@ -289,65 +291,6 @@ function damagePlayer(amount, knockDir = 0){
   if (player.hp <= 0){
     player.hp = 0;
     killPlayer();
-  }
-}
-
-function resetToLevel(idx){
-  state.levelIndex = idx;
-  const L = LEVELS[idx];
-  hudLevel.textContent = String(idx + 1);
-  state.respawn = { x: L.spawn.x, y: L.spawn.y };
-
-  player.x = L.spawn.x;
-  player.y = L.spawn.y;
-  player.vx = 0;
-  player.vy = 0;
-  player.deadTimer = 0;
-  player.invuln = 0;
-  player.hp = player.maxHp;
-
-  enemies = (L.enemies || []).map(e => ({
-    ...e,
-    w: 40, h: 40,
-    vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
-    vy: 0,
-    maxHp: e.hp
-  }));
-
-  coins = (L.coins || []).map(c => ({...c, w: 20, h: 20, taken: false}));
-  pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
-  projectiles = [];
-
-  exitDoor = { x: L.exit.x, y: L.exit.y, w: 44, h: 56, locked: !!L.exitLocked };
-  checkpoint = { x: L.checkpoint.x, y: L.checkpoint.y, w: 28, h: 50, active:false };
-  platforms = (L.platforms || []).map(p => ({...p}));
-
-  bossProjectiles = [];
-  bossWaves = [];
-  boss = null;
-
-  if (L.boss){
-    boss = {
-      type: L.boss.type,
-      x: L.boss.x,
-      y: L.boss.y,
-      w: 92,
-      h: 92,
-      vx: 0,
-      vy: 0,
-      onGround: false,
-      wasOnGround: false,
-      left: L.boss.left,
-      right: L.boss.right,
-      hp: L.boss.hp,
-      maxHp: L.boss.hp,
-      mode: "intro",
-      t: 90,
-      invuln: 0,
-      face: -1,
-      bounces: 0
-    };
-    setToast("BOSS APPROACHING", 90);
   }
 }
 
@@ -367,6 +310,9 @@ function respawnPlayer(){
   projectiles = [];
   bossProjectiles = [];
   bossWaves = [];
+
+  // snap after respawn
+  snapEntityToNearestPlatform(player, player.y + PLAYER_BASE.h);
 }
 
 function unlockExit(){
@@ -374,6 +320,84 @@ function unlockExit(){
   if (!exitDoor.locked) return;
   exitDoor.locked = false;
   setToast("EXIT UNLOCKED!", 120);
+}
+
+function resetToLevel(idx){
+  state.levelIndex = idx;
+  const L = LEVELS[idx];
+  hudLevel.textContent = String(idx + 1);
+  state.respawn = { x: L.spawn.x, y: L.spawn.y };
+
+  // platforms first (needed for snapping)
+  platforms = (L.platforms || []).map(p => ({...p}));
+
+  // player reset
+  player.x = L.spawn.x;
+  player.y = L.spawn.y;
+  player.vx = 0;
+  player.vy = 0;
+  player.deadTimer = 0;
+  player.invuln = 0;
+  player.hp = player.maxHp;
+
+  coins = (L.coins || []).map(c => ({...c, w: 20, h: 20, taken: false}));
+  pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
+  projectiles = [];
+
+  exitDoor = { x: L.exit.x, y: L.exit.y, w: 44, h: 56, locked: !!L.exitLocked };
+  checkpoint = { x: L.checkpoint.x, y: L.checkpoint.y, w: 28, h: 50, active:false };
+
+  // enemies (scaled + patrol correction)
+  enemies = (L.enemies || []).map(e => ({
+    ...e,
+    w: ENEMY_SIZE.w, h: ENEMY_SIZE.h,
+    vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
+    vy: 0,
+    maxHp: e.hp,
+    _preferredFootY: (e.y ?? 0) + ENEMY_BASE.h,
+    right: e.right - (ENEMY_SIZE.w - ENEMY_BASE.w)
+  }));
+
+  // boss reset
+  bossProjectiles = [];
+  bossWaves = [];
+  boss = null;
+
+  if (L.boss){
+    boss = {
+      type: L.boss.type,
+      x: L.boss.x,
+      y: L.boss.y,
+      w: BOSS_SIZE.w,
+      h: BOSS_SIZE.h,
+      vx: 0,
+      vy: 0,
+      onGround: false,
+      wasOnGround: false,
+      left: L.boss.left,
+      right: L.boss.right,
+      hp: L.boss.hp,
+      maxHp: L.boss.hp,
+      mode: "intro",
+      t: 90,
+      invuln: 0,
+      face: -1,
+      bounces: 0
+    };
+    setToast("BOSS APPROACHING", 90);
+  }
+
+  // Snap bigger sprites so they sit ON platforms
+  snapEntityToNearestPlatform(player, (L.spawn?.y ?? player.y) + PLAYER_BASE.h);
+
+  for (const e of enemies){
+    snapEntityToNearestPlatform(e, e._preferredFootY);
+    delete e._preferredFootY;
+  }
+
+  if (boss){
+    snapEntityToNearestPlatform(boss, (L.boss?.y ?? boss.y) + BOSS_BASE.h);
+  }
 }
 
 function startGame(){
@@ -503,10 +527,10 @@ function updatePlayer(){
 
   if (KEYS.throw && player.throwCooldown === 0){
     const proj = {
-      x: player.x + (player.facing > 0 ? player.w : -18),
-      y: player.y + 18,
-      w: 18,
-      h: 18,
+      x: player.x + (player.facing > 0 ? player.w : -PHONE_SIZE.w),
+      y: player.y + Math.round(player.h * 0.35),
+      w: PHONE_SIZE.w,
+      h: PHONE_SIZE.h,
       vx: 9.5 * player.facing,
       vy: -1.5,
       life: 90
@@ -519,7 +543,6 @@ function updatePlayer(){
   moveAndCollide(player, platforms);
 
   if (player.y > canvas.height + 200){
-    // falling is still instant KO (classic platformer)
     player.hp = 0;
     killPlayer();
   }
@@ -744,7 +767,6 @@ function updateBoss(){
   boss.vy = ent.vy;
   boss.onGround = ent.onGround;
 
-  // boss body hit = damage player (not instant kill)
   if (aabb(player, boss)){
     const knock = (player.x + player.w/2) < (boss.x + boss.w/2) ? -1 : 1;
     damagePlayer(1, knock);
@@ -808,7 +830,6 @@ function updateToast(){
 
 // --- 8-bit HP bar drawing helpers ---
 function drawPixelFrame(x, y, w, h){
-  // chunky 8-bit frame: double outline
   ctx.fillStyle = "#000";
   ctx.fillRect(x, y, w, h);
   ctx.fillStyle = "#fff";
@@ -818,7 +839,6 @@ function drawPixelFrame(x, y, w, h){
 }
 
 function drawSegmentBar(x, y, segments, filled, segW = 8, segH = 8, gap = 2){
-  // inside bar is drawn with black background; filled segments white; empty segments dark
   for (let i = 0; i < segments; i++){
     const sx = x + i * (segW + gap);
     ctx.fillStyle = (i < filled) ? "#fff" : "#111";
@@ -836,28 +856,23 @@ function drawLabel(text, x, y, align="left"){
 }
 
 function drawPlayerHP(){
-  // top-right
   const segments = player.maxHp;
   const filled = clamp(player.hp, 0, player.maxHp);
 
   const segW = 10, segH = 10, gap = 2;
   const innerW = segments * segW + (segments-1)*gap;
-  const innerH = segH;
 
   const pad = 12;
   const frameW = innerW + 8;
-  const frameH = innerH + 8;
+  const frameH = segH + 8;
 
   const x = canvas.width - pad - frameW;
   const y = pad;
 
   drawPixelFrame(x, y, frameW, frameH);
   drawSegmentBar(x+4, y+4, segments, filled, segW, segH, gap);
-
-  // label
   drawLabel("HP", x + frameW - 2, y + frameH + 14, "right");
 
-  // invuln flicker indicator (tiny)
   if (player.invuln > 0 && (player.invuln % 10) < 5){
     ctx.fillStyle = "#fff";
     ctx.fillRect(x + frameW - 10, y - 6, 8, 4);
@@ -865,7 +880,8 @@ function drawPlayerHP(){
 }
 
 function drawEnemyHP(ent){
-  if (!ent.maxHp || ent.maxHp <= 1) return; // skip 1hp to reduce clutter
+  if (!ent.maxHp || ent.maxHp <= 1) return;
+
   const segments = clamp(ent.maxHp, 2, 10);
   const filled = clamp(ent.hp, 0, ent.maxHp);
 
@@ -875,10 +891,9 @@ function drawEnemyHP(ent){
   const frameH = segH + 6;
 
   const x = Math.floor(ent.x + ent.w/2 - frameW/2);
-  const y = Math.floor(ent.y - frameH - 6);
+  const y = Math.floor(ent.y + SPRITE_RENDER_Y_OFFSET - frameH - 6);
 
   drawPixelFrame(x, y, frameW, frameH);
-  // map hp into segments (so a 4hp enemy shows 4 segments, etc.)
   const segFilled = Math.round((filled / ent.maxHp) * segments);
   drawSegmentBar(x+3, y+3, segments, segFilled, segW, segH, gap);
 }
@@ -886,7 +901,7 @@ function drawEnemyHP(ent){
 function drawBossBar(){
   if (!boss || boss.hp <= 0) return;
 
-  const segments = 16; // retro bar segments
+  const segments = 16;
   const filledSeg = Math.round((boss.hp / boss.maxHp) * segments);
 
   const pad = 12;
@@ -900,7 +915,6 @@ function drawBossBar(){
 
   drawPixelFrame(x, y, frameW, frameH);
   drawSegmentBar(x+4, y+4, segments, filledSeg, segW, segH, gap);
-
   drawLabel("BOSS", x, y + frameH + 14, "left");
 }
 
@@ -959,10 +973,10 @@ function draw(){
     ctx.drawImage(images.coin, c.x, c.y, c.w, c.h);
   }
 
-  // enemies + their HP bars
+  // enemies + HP
   for (const e of enemies){
     const img = e.type === "enemy1" ? images.enemy1 : images.enemy2;
-    ctx.drawImage(img, e.x, e.y, e.w, e.h);
+    ctx.drawImage(img, e.x, e.y + SPRITE_RENDER_Y_OFFSET, e.w, e.h);
     drawEnemyHP(e);
   }
 
@@ -974,7 +988,7 @@ function draw(){
     ctx.globalAlpha = 1.0;
   }
 
-  // boss shockwaves
+  // boss waves
   for (const w of bossWaves){
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = "#fff";
@@ -987,7 +1001,7 @@ function draw(){
     ctx.drawImage(images.phone, pr.x, pr.y, pr.w, pr.h);
   }
 
-  // boss render
+  // boss render + boss bar
   if (boss && boss.hp > 0){
     const bImg = boss.type === "enemy2" ? images.enemy2 : images.enemy1;
 
@@ -995,15 +1009,14 @@ function draw(){
     if (boss.invuln > 0 && (boss.invuln % 4) < 2) ctx.globalAlpha = 0.55;
 
     if (boss.face < 0){
-      ctx.translate(boss.x + boss.w, boss.y);
+      ctx.translate(boss.x + boss.w, boss.y + SPRITE_RENDER_Y_OFFSET);
       ctx.scale(-1, 1);
       ctx.drawImage(bImg, 0, 0, boss.w, boss.h);
     } else {
-      ctx.drawImage(bImg, boss.x, boss.y, boss.w, boss.h);
+      ctx.drawImage(bImg, boss.x, boss.y + SPRITE_RENDER_Y_OFFSET, boss.w, boss.h);
     }
     ctx.restore();
 
-    // boss HP bar (top-left)
     drawBossBar();
   }
 
@@ -1014,11 +1027,11 @@ function draw(){
     if (player.invuln > 0 && (player.invuln % 10) < 5) ctx.globalAlpha = 0.55;
 
     if (player.facing < 0){
-      ctx.translate(player.x + player.w, player.y);
+      ctx.translate(player.x + player.w, player.y + SPRITE_RENDER_Y_OFFSET);
       ctx.scale(-1, 1);
       ctx.drawImage(pImg, 0, 0, player.w, player.h);
     } else {
-      ctx.drawImage(pImg, player.x, player.y, player.w, player.h);
+      ctx.drawImage(pImg, player.x, player.y + SPRITE_RENDER_Y_OFFSET, player.w, player.h);
     }
     ctx.restore();
   } else {
@@ -1026,7 +1039,7 @@ function draw(){
     ctx.fillRect(player.x, player.y, player.w, player.h);
   }
 
-  // player HP bar (top-right)
+  // player HP bar
   drawPlayerHP();
 
   if (player.deadTimer > 0){
