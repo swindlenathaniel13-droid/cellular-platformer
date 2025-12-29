@@ -33,7 +33,8 @@
         <!-- Character Select -->
         <div id="menu" class="menu">
           <h2 style="margin:0 0 6px 0;">Choose your character</h2>
-          <div class="small">Gilly · Scott · Kevin · Nate</div>
+          <div class="small">Playable: Gilly · Scott · Kevin · Nate</div>
+          <div class="small" style="margin-top:4px;">Edgar is the shopkeeper (not playable).</div>
           <div id="charGrid" class="char-grid" style="margin-top:12px;"></div>
           <button id="startBtn" class="btn" disabled>Start</button>
           <p class="small" style="margin-top:10px;">
@@ -50,6 +51,25 @@
           <div>Throw: <span id="hudThrow">Ready</span></div>
         </div>
 
+        <!-- STAGE CLEAR OVERLAY (Shop only available here, once per stage) -->
+        <div id="stageOverlay" class="overlay hidden" aria-hidden="true">
+          <div class="overlay-card stage-card">
+            <div class="overlay-title">STAGE CLEAR</div>
+            <div class="overlay-sub">Coins: <span id="stageCoins">0</span> · Shop: <span id="stageShopStatus">Available</span></div>
+
+            <div class="overlay-buttons" style="margin-top:14px;">
+              <button id="stageShopBtn" class="btn btn-solid">Open Shop</button>
+              <button id="stageNextBtn" class="btn">Next Stage</button>
+              <button id="stageReplayBtn" class="btn">Replay Stage</button>
+              <button id="stageQuitBtn" class="btn btn-danger">Quit to Character Select</button>
+            </div>
+
+            <div class="overlay-help small">
+              Shop can be used once per stage, only after clearing it.
+            </div>
+          </div>
+        </div>
+
         <!-- LOADING OVERLAY -->
         <div id="loadingOverlay" class="overlay hidden" aria-hidden="true">
           <div class="overlay-card loading-card">
@@ -61,7 +81,7 @@
           </div>
         </div>
 
-        <!-- PAUSE OVERLAY -->
+        <!-- PAUSE OVERLAY (NO SHOP HERE) -->
         <div id="pauseOverlay" class="overlay hidden" aria-hidden="true">
           <div class="overlay-card">
             <div class="overlay-title">PAUSED</div>
@@ -69,7 +89,6 @@
 
             <div class="overlay-buttons">
               <button id="resumeBtn" class="btn btn-solid">Resume</button>
-              <button id="shopBtn" class="btn">Shop</button>
               <button id="restartBtn" class="btn">Restart Level</button>
               <button id="quitBtn" class="btn btn-danger">Quit to Character Select</button>
             </div>
@@ -80,12 +99,15 @@
           </div>
         </div>
 
-        <!-- SHOP OVERLAY -->
+        <!-- SHOP OVERLAY (opened only from STAGE CLEAR) -->
         <div id="shopOverlay" class="overlay hidden" aria-hidden="true">
           <div class="overlay-card shop-card">
-            <div class="overlay-title">SHOP</div>
-            <div class="overlay-sub">
-              Spend coins on upgrades (permanent for this run).
+            <div class="shop-head">
+              <img class="shopkeeper" src="assets/Edgar.png" alt="Edgar" />
+              <div>
+                <div class="overlay-title">SHOP</div>
+                <div class="overlay-sub">Edgar: “Spend your coins wisely.”</div>
+              </div>
             </div>
 
             <div class="shop-topline">
@@ -96,7 +118,7 @@
             <div id="shopList" class="shop-list"></div>
 
             <div class="overlay-help small">
-              Tip: Dash module can also be found in levels — buying it skips the wait.
+              Shop is available once per stage (after clearing).
             </div>
           </div>
         </div>
