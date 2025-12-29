@@ -146,7 +146,55 @@ canvas{
 .overlay-help{ margin-top:14px; }
 
 /* Stage clear */
-.stage-card{ width: min(520px, 95%); }
+.stage-card{ width: min(560px, 95%); }
+.stage-head{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+.stage-head-text{ flex: 1; min-width: 0; }
+
+.stage-char{
+  width:72px;
+  height:72px;
+  border-radius:16px;
+  border:2px solid rgba(255,255,255,.75);
+  background: rgba(0,0,0,.25);
+  image-rendering: pixelated;
+  animation: pixelBob 1.2s steps(2, end) infinite;
+}
+
+@keyframes pixelBob{
+  0%{ transform: translateY(0); }
+  50%{ transform: translateY(-4px); }
+  100%{ transform: translateY(0); }
+}
+
+.stage-stats{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap:10px;
+}
+.stat{
+  padding:10px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.16);
+  background: rgba(0,0,0,.18);
+}
+.stat-label{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+  letter-spacing: .6px;
+  font-size: 12px;
+  color: rgba(233,238,252,.9);
+}
+.stat-value{
+  margin-top:6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+  font-size: 16px;
+}
 
 /* Shop */
 .shop-card{ width: min(760px, 98%); }
