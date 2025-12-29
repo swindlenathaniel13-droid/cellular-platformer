@@ -15,123 +15,76 @@
 
     <div class="main">
       <div class="stage">
-        <canvas id="game" width="960" height="540"></canvas>
+        <canvas id="game" width="1280" height="720"></canvas>
 
-        <!-- Tutorial Overlay (Stage 1 only) -->
-        <div id="tutorialOverlay" class="tutorial hidden" aria-hidden="true">
-          <div class="tutorial-title">HOW TO PLAY</div>
-          <div class="tutorial-sub">Complete these steps:</div>
+        <!-- Tutorial box (Stage 1 only) -->
+        <div id="tutorialBox" class="tutorial hidden">
+          <div class="tutorial-title">STAGE 1: TRAINING MODE</div>
+          <div class="tutorial-sub">Do these once to complete the tutorial:</div>
           <div class="tutorial-list">
-            <div id="tutMove"  class="tut-item">[ ] Move left/right (A/D or ←/→)</div>
-            <div id="tutJump"  class="tut-item">[ ] Jump (Space)</div>
-            <div id="tutThrow" class="tut-item">[ ] Throw phone (F)</div>
-            <div id="tutDoor"  class="tut-item">[ ] Reach the Exit Door</div>
+            <div id="tutMove" class="tut-item">MOVE (A/D or ←/→)</div>
+            <div id="tutJump" class="tut-item">JUMP (Space)</div>
+            <div id="tutThrow" class="tut-item">THROW (F)</div>
           </div>
-          <div class="tutorial-tip">Tip: Press Esc to pause anytime.</div>
+          <div class="tutorial-tip">Tip: Reach the door to finish the stage.</div>
         </div>
 
-        <!-- Character Select -->
-        <div id="menu" class="menu">
-          <h2 style="margin:0 0 6px 0;">Choose your character</h2>
-          <div class="small">Playable: Gilly · Scott · Kevin · Nate</div>
-          <div class="small" style="margin-top:4px;">Edgar is the shopkeeper (not playable).</div>
-          <div id="charGrid" class="char-grid" style="margin-top:12px;"></div>
-          <button id="startBtn" class="btn" disabled>Start</button>
-          <p class="small" style="margin-top:10px;">
-            Tip: Add <code>?seed=123</code> to the URL for repeatable procedural levels.
-          </p>
-        </div>
-
-        <!-- HUD -->
-        <div id="hud" class="hud hidden">
-          <div>Level: <span id="hudLevel">1</span></div>
-          <div>Coins: <span id="hudCoins">0</span></div>
-          <div>Dash: <span id="hudDash">No</span></div>
-          <div>Speed: <span id="hudSpeed">Normal</span></div>
-          <div>Throw: <span id="hudThrow">Ready</span></div>
-        </div>
-
-        <!-- STAGE CLEAR OVERLAY -->
-        <div id="stageOverlay" class="overlay hidden" aria-hidden="true">
-          <div class="overlay-card stage-card">
-            <div class="stage-head">
-              <img id="stageCharImg" class="stage-char" alt="Character" />
-              <div class="stage-head-text">
-                <div class="overlay-title">STAGE CLEAR</div>
-                <div class="overlay-sub">
-                  Coins Total: <span id="stageCoins">0</span>
-                  · Shop: <span id="stageShopStatus">Available</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Stage Stats Row -->
-            <div class="stage-stats">
-              <div class="stat">
-                <div class="stat-label">TIME</div>
-                <div id="statTime" class="stat-value">0.0s</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">COINS</div>
-                <div id="statCoins" class="stat-value">+0</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">DAMAGE</div>
-                <div id="statDamage" class="stat-value">0</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">DEFEATED</div>
-                <div id="statDefeated" class="stat-value">0</div>
-              </div>
-            </div>
-
-            <div class="overlay-buttons" style="margin-top:14px;">
-              <button id="stageShopBtn" class="btn btn-solid">Open Shop</button>
-              <button id="stageNextBtn" class="btn">Next Stage</button>
-              <button id="stageReplayBtn" class="btn">Replay Stage</button>
-              <button id="stageQuitBtn" class="btn btn-danger">Quit to Character Select</button>
-            </div>
-
-            <div class="overlay-help small">
-              Shop can be used once per stage, only after clearing it.
-            </div>
-          </div>
-        </div>
-
-        <!-- LOADING OVERLAY -->
-        <div id="loadingOverlay" class="overlay hidden" aria-hidden="true">
-          <div class="overlay-card loading-card">
-            <div class="overlay-title">LOADING NEXT STAGE</div>
-            <div class="loading-bar">
-              <div id="loadingFill" class="loading-fill"></div>
-            </div>
-            <div id="loadingText" class="overlay-sub">Generating the next level...</div>
-          </div>
-        </div>
-
-        <!-- PAUSE OVERLAY (NO SHOP HERE) -->
-        <div id="pauseOverlay" class="overlay hidden" aria-hidden="true">
+        <!-- Pause overlay -->
+        <div id="pauseOverlay" class="overlay hidden">
           <div class="overlay-card">
             <div class="overlay-title">PAUSED</div>
-            <div class="overlay-sub">Esc to resume</div>
-
+            <div class="overlay-sub">Press Esc to resume.</div>
             <div class="overlay-buttons">
-              <button id="resumeBtn" class="btn btn-solid">Resume</button>
-              <button id="restartBtn" class="btn">Restart Level</button>
-              <button id="quitBtn" class="btn btn-danger">Quit to Character Select</button>
-            </div>
-
-            <div class="overlay-help small">
-              Controls: ←/→ or A/D · Space jump · F throw · Shift dash · Esc pause
+              <button id="btnResume" class="btn btn-solid">Resume</button>
+              <button id="btnRestart" class="btn">Restart Stage</button>
+              <button id="btnBackMenu" class="btn btn-danger">Back to Character Select</button>
             </div>
           </div>
         </div>
 
-        <!-- SHOP OVERLAY -->
-        <div id="shopOverlay" class="overlay hidden" aria-hidden="true">
+        <!-- Stage clear overlay -->
+        <div id="stageClearOverlay" class="overlay hidden">
+          <div class="overlay-card stage-card">
+            <div class="stage-head">
+              <img id="stageChar" class="stage-char" alt="char" />
+              <div class="stage-head-text">
+                <div class="overlay-title" id="stageClearTitle">STAGE CLEARED</div>
+                <div class="overlay-sub" id="stageClearSub">Nice work.</div>
+              </div>
+            </div>
+
+            <div class="stage-stats">
+              <div class="stat">
+                <div class="stat-label">COINS</div>
+                <div class="stat-value" id="statCoins">0</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">HP</div>
+                <div class="stat-value" id="statHP">0</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">STAGE</div>
+                <div class="stat-value" id="statStage">1</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">UNLOCKS</div>
+                <div class="stat-value" id="statUnlocks">—</div>
+              </div>
+            </div>
+
+            <div class="overlay-buttons">
+              <button id="btnShop" class="btn btn-solid">Open Shop (once)</button>
+              <button id="btnNextStage" class="btn">Next Stage</button>
+              <button id="btnClearRestart" class="btn">Restart</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shop overlay -->
+        <div id="shopOverlay" class="overlay hidden">
           <div class="overlay-card shop-card">
             <div class="shop-head">
-              <img class="shopkeeper" src="assets/Edgar.png" alt="Edgar" />
+              <img id="shopkeeperImg" class="shopkeeper" alt="Edgar" />
               <div>
                 <div class="overlay-title">SHOP</div>
                 <div class="overlay-sub">Edgar: “Spend your coins wisely.”</div>
@@ -140,17 +93,54 @@
 
             <div class="shop-topline">
               <div class="shop-coins">Coins: <span id="shopCoins">0</span></div>
-              <button id="closeShopBtn" class="btn btn-solid">Back</button>
+              <button id="btnShopBack" class="btn">Back</button>
             </div>
 
-            <div id="shopList" class="shop-list"></div>
+            <div class="shop-list" id="shopList"></div>
 
-            <div class="overlay-help small">
-              Shop is available once per stage (after clearing).
+            <div class="overlay-sub" style="margin-top:10px;">
+              Shop is available once per cleared stage.
             </div>
           </div>
         </div>
 
+        <!-- Loading overlay -->
+        <div id="loadingOverlay" class="overlay hidden">
+          <div class="overlay-card loading-card">
+            <div class="overlay-title">LOADING NEXT STAGE…</div>
+            <div class="overlay-sub">Generating the next map.</div>
+            <div class="loading-bar">
+              <div id="loadingFill" class="loading-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HUD -->
+        <div class="hud" id="hud">
+          <div id="hudStage">Level: 1</div>
+          <div id="hudCoins">Coins: 0</div>
+          <div id="hudDash">Dash: Locked</div>
+          <div id="hudSpeed">Speed: Normal</div>
+          <div id="hudThrow">Throw: Ready</div>
+        </div>
+      </div>
+
+      <!-- Character select menu -->
+      <div class="menu" id="menu">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <div>
+            <div class="title">Choose your character</div>
+            <div class="small">Playable: Gilly, Scott, Kevin, Nate, Edgar</div>
+          </div>
+          <button id="btnStart" class="btn btn-solid" disabled>Start Game</button>
+        </div>
+
+        <div class="char-grid" id="charGrid"></div>
+
+        <div class="small">
+          Notes: Enemy1/Enemy2 patrol and Enemy2 can be a boss. Exit door advances stages.
+          Platforms are tiled (no stretching) so they look like real walkable surfaces.
+        </div>
       </div>
 
       <div class="footer">Made with HTML Canvas · Hosted on GitHub Pages</div>
