@@ -14,7 +14,7 @@ body{
   color:var(--text);
 }
 
-.wrap{ width: min(98vw, 1600px); margin:0 auto; padding:12px; }
+.wrap{ width: min(98vw, 1700px); margin:0 auto; padding:12px; }
 
 .topbar{
   display:flex; gap:12px; align-items:baseline; justify-content:space-between;
@@ -33,7 +33,7 @@ body{
 canvas{
   width:100%;
   height:auto;
-  max-height: 78vh;
+  max-height: 80vh;
   aspect-ratio: 16 / 9;
   border-radius:16px;
   border:1px solid rgba(122,167,255,.25);
@@ -41,7 +41,6 @@ canvas{
   image-rendering: pixelated;
 }
 
-/* Character Select */
 .menu{
   margin-top:12px;
   background:rgba(17,26,51,.65);
@@ -52,7 +51,7 @@ canvas{
 
 .char-grid{
   display:grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap:12px;
   margin:12px 0;
 }
@@ -72,11 +71,10 @@ canvas{
   border-color: rgba(122,167,255,.9);
   box-shadow: 0 0 0 3px rgba(122,167,255,.18);
 }
-.char-card img{ width:48px;height:48px; image-rendering: pixelated; }
+.char-card img{ width:56px;height:56px; image-rendering: pixelated; }
 .char-name{font-weight:700}
 .small{color:var(--muted);margin:8px 0 0 0;font-size:13px}
 
-/* Buttons */
 .btn{
   padding:10px 14px;
   border-radius:12px;
@@ -90,7 +88,6 @@ canvas{
 .btn-solid{ background: rgba(122,167,255,.22); border-color: rgba(122,167,255,.8); }
 .btn-danger{ background: rgba(255,107,107,.14); border-color: rgba(255,107,107,.7); }
 
-/* HUD */
 .hud{
   position:absolute;
   left:12px;
@@ -113,7 +110,6 @@ canvas{
 
 .footer{ color:var(--muted); font-size:12px; text-align:center; margin-top:8px; }
 
-/* Overlays */
 .overlay{
   position:absolute;
   inset:0;
@@ -126,7 +122,7 @@ canvas{
 }
 
 .overlay-card{
-  width: min(560px, 95%);
+  width: min(680px, 96%);
   background: rgba(17,26,51,.92);
   border: 2px solid rgba(255,255,255,.75);
   border-radius: 18px;
@@ -144,13 +140,8 @@ canvas{
 .overlay-buttons{ margin-top:14px; display:grid; gap:10px; }
 .overlay-help{ margin-top:14px; }
 
-/* Stage clear */
-.stage-card{ width: min(560px, 95%); }
-.stage-head{
-  display:flex;
-  gap:12px;
-  align-items:center;
-}
+.stage-card{ width: min(720px, 96%); }
+.stage-head{ display:flex; gap:12px; align-items:center; }
 .stage-head-text{ flex: 1; min-width: 0; }
 
 .stage-char{
@@ -186,7 +177,6 @@ canvas{
   font-weight: 900;
   letter-spacing: .6px;
   font-size: 12px;
-  color: rgba(233,238,252,.9);
 }
 .stat-value{
   margin-top:6px;
@@ -195,14 +185,9 @@ canvas{
   font-size: 16px;
 }
 
-/* Shop */
-.shop-card{ width: min(760px, 98%); }
+.shop-card{ width: min(860px, 98%); }
 
-.shop-head{
-  display:flex;
-  gap:12px;
-  align-items:center;
-}
+.shop-head{ display:flex; gap:12px; align-items:center; }
 
 .shopkeeper{
   width:56px;
@@ -248,12 +233,11 @@ canvas{
   font-weight: 900;
 }
 
-/* Tutorial overlay */
 .tutorial{
   position:absolute;
   top:12px;
   left:12px;
-  width: min(360px, 92%);
+  width: min(380px, 92%);
   padding:12px;
   border-radius:16px;
   background: rgba(0,0,0,.45);
@@ -282,8 +266,7 @@ canvas{
 }
 .tutorial-tip{ margin-top:10px; color: var(--muted); font-size: 12px; }
 
-/* Loading bar */
-.loading-card{ width: min(520px, 95%); }
+.loading-card{ width: min(560px, 95%); }
 .loading-bar{
   margin-top:14px;
   height: 18px;
@@ -298,5 +281,5 @@ canvas{
   background: rgba(255,255,255,.85);
 }
 
-/* ✅ IMPORTANT: keep this LAST so it overrides overlay/menu/hud display rules */
+/* IMPORTANT: keep this LAST so it overrides overlay display rules */
 .hidden{ display:none !important; }
