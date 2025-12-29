@@ -1,11 +1,12 @@
 /* Pixel Platformer - HTML Canvas
    - Playable: Gilly/Scott/Kevin/Nate
-   - Enemies: Enemy1/Enemy2 patrol
-   - Boss: Enemy2 becomes a boss fight with HP + patterns
+   - Enemies: Enemy1/Enemy2 patrol (each has HP bar)
+   - Boss: Enemy2 becomes a boss fight with HP + patterns (segmented boss bar)
    - Exit door advances level (boss level door is locked until boss defeated)
    - Platform tiles are walkable geometry
    - Powerups: Dash, Speedboost
    - Weapon: powerup_homephone.png = thrown projectile
+   - NEW: 8-bit segmented HP bars for player + all enemies
 */
 
 const ASSETS = {
@@ -27,7 +28,7 @@ const ASSETS = {
   ],
 };
 
-// Change this to 2 if you want to START directly on the boss level for testing.
+// Set to 2 if you want to start directly on the boss level for testing.
 const START_LEVEL_INDEX = 0;
 
 const canvas = document.getElementById("game");
@@ -95,7 +96,7 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyF") KEYS.throw = false;
 });
 
-// --- Level data (platforms are rectangles; platform sprite is tiled across the width) ---
+// --- Level data ---
 const LEVELS = [
   {
     name: "Rooftop Relay",
@@ -104,7 +105,7 @@ const LEVELS = [
     exitLocked: false,
     checkpoint: { x: 470, y: 395 },
     platforms: [
-      { x: 0, y: 460, w: 960, h: 80 },         // ground
+      { x: 0, y: 460, w: 960, h: 80 },
       { x: 140, y: 380, w: 220, h: 28 },
       { x: 420, y: 320, w: 180, h: 28 },
       { x: 650, y: 360, w: 200, h: 28 },
@@ -155,16 +156,15 @@ const LEVELS = [
     ],
     boss: null
   },
-  // --- BOSS LEVEL ---
   {
     name: "Boss: Signal Tyrant",
     spawn: { x: 70, y: 380 },
     exit:  { x: 890, y: 395 },
-    exitLocked: true, // unlocked when boss dies
+    exitLocked: true,
     checkpoint: { x: 160, y: 395 },
     platforms: [
-      { x: 0, y: 460, w: 960, h: 80 },          // arena floor
-      { x: 150, y: 360, w: 140, h: 28 },        // small ledges
+      { x: 0, y: 460, w: 960, h: 80 },
+      { x: 150, y: 360, w: 140, h: 28 },
       { x: 360, y: 320, w: 150, h: 28 },
       { x: 590, y: 320, w: 150, h: 28 },
       { x: 790, y: 360, w: 140, h: 28 },
@@ -205,6 +205,12 @@ const player = {
   vx: 0, vy: 0,
   facing: 1,
   onGround: false,
+
+  // NEW: health
+  maxHp: 6,
+  hp: 6,
+  invuln: 0,
+
   canDash: false,
   dashCooldown: 0,
   speedBoostTimer: 0,
@@ -230,6 +236,25 @@ function setToast(text, frames = 120){
   state.toast.t = frames;
 }
 
+function damagePlayer(amount, knockDir = 0){
+  if (player.deadTimer > 0) return;
+  if (player.invuln > 0) return;
+
+  player.hp -= amount;
+  player.invuln = 45;
+
+  // tiny knockback for "arcade feel"
+  if (knockDir !== 0){
+    player.vx = 6.5 * knockDir;
+    player.vy = Math.min(player.vy, -5.5);
+  }
+
+  if (player.hp <= 0){
+    player.hp = 0;
+    killPlayer();
+  }
+}
+
 function resetToLevel(idx){
   state.levelIndex = idx;
   const L = LEVELS[idx];
@@ -241,8 +266,17 @@ function resetToLevel(idx){
   player.vx = 0;
   player.vy = 0;
   player.deadTimer = 0;
+  player.invuln = 0;
+  player.hp = player.maxHp;
 
-  enemies = (L.enemies || []).map(e => ({...e, w: 40, h: 40, vx: 0.7 * (Math.random() > 0.5 ? 1 : -1), vy:0 }));
+  enemies = (L.enemies || []).map(e => ({
+    ...e,
+    w: 40, h: 40,
+    vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
+    vy: 0,
+    maxHp: e.hp
+  }));
+
   coins = (L.coins || []).map(c => ({...c, w: 20, h: 20, taken: false}));
   pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
   projectiles = [];
@@ -251,10 +285,10 @@ function resetToLevel(idx){
   checkpoint = { x: L.checkpoint.x, y: L.checkpoint.y, w: 28, h: 50, active:false };
   platforms = (L.platforms || []).map(p => ({...p}));
 
-  // Boss setup
   bossProjectiles = [];
   bossWaves = [];
   boss = null;
+
   if (L.boss){
     boss = {
       type: L.boss.type,
@@ -271,7 +305,7 @@ function resetToLevel(idx){
       hp: L.boss.hp,
       maxHp: L.boss.hp,
       mode: "intro",
-      t: 90,           // intro timer
+      t: 90,
       invuln: 0,
       face: -1,
       bounces: 0
@@ -282,7 +316,7 @@ function resetToLevel(idx){
 
 function killPlayer(){
   if (player.deadTimer > 0) return;
-  player.deadTimer = 45; // frames of "death pause"
+  player.deadTimer = 45;
 }
 
 function respawnPlayer(){
@@ -290,6 +324,9 @@ function respawnPlayer(){
   player.y = state.respawn.y;
   player.vx = 0;
   player.vy = 0;
+  player.invuln = 30;
+  player.hp = player.maxHp;
+
   projectiles = [];
   bossProjectiles = [];
   bossWaves = [];
@@ -308,7 +345,6 @@ function startGame(){
   hudEl.classList.remove("hidden");
   state.coins = 0;
 
-  // Powerups reset per run (feel free to change later)
   player.canDash = false;
   player.dashCooldown = 0;
   player.speedBoostTimer = 0;
@@ -351,13 +387,13 @@ function buildCharacterMenu(){
       card.classList.add("selected");
       startBtn.disabled = false;
     }
+
     card.addEventListener("click", select);
     card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") select(); });
 
     charGridEl.appendChild(card);
   });
 }
-
 startBtn.addEventListener("click", startGame);
 
 // --- Physics & collisions ---
@@ -367,7 +403,6 @@ const BASE_SPEED = 3.2;
 const MAX_FALL = 14;
 
 function moveAndCollide(ent, solids){
-  // Horizontal
   ent.x += ent.vx;
   for (const s of solids){
     if (!aabb(ent, s)) continue;
@@ -380,7 +415,6 @@ function moveAndCollide(ent, solids){
     }
   }
 
-  // Vertical
   ent.y += ent.vy;
   ent.onGround = false;
   for (const s of solids){
@@ -397,12 +431,13 @@ function moveAndCollide(ent, solids){
 }
 
 function updatePlayer(){
-  // death pause
   if (player.deadTimer > 0){
     player.deadTimer--;
     if (player.deadTimer === 0) respawnPlayer();
     return;
   }
+
+  if (player.invuln > 0) player.invuln--;
 
   const speedMult = player.speedBoostTimer > 0 ? 1.55 : 1.0;
   const speed = BASE_SPEED * speedMult;
@@ -411,29 +446,24 @@ function updatePlayer(){
   if (player.speedBoostTimer > 0) player.speedBoostTimer--;
   if (player.throwCooldown > 0) player.throwCooldown--;
 
-  // input
   let ax = 0;
   if (KEYS.left) ax -= 1;
   if (KEYS.right) ax += 1;
   if (ax !== 0) player.facing = Math.sign(ax);
 
-  // horizontal velocity
   const target = ax * speed;
   player.vx = player.vx * 0.75 + target * 0.25;
 
-  // jump
   if (KEYS.jump && player.onGround){
     player.vy = JUMP_V;
   }
 
-  // dash
   if (KEYS.dash && player.canDash && player.dashCooldown === 0){
     player.vx = 12 * player.facing;
     player.vy = Math.min(player.vy, 2);
     player.dashCooldown = 45;
   }
 
-  // throw phone projectile
   if (KEYS.throw && player.throwCooldown === 0){
     const proj = {
       x: player.x + (player.facing > 0 ? player.w : -18),
@@ -448,22 +478,20 @@ function updatePlayer(){
     player.throwCooldown = 18;
   }
 
-  // gravity
   player.vy = clamp(player.vy + GRAVITY, -50, MAX_FALL);
   moveAndCollide(player, platforms);
 
-  // fell off world
   if (player.y > canvas.height + 200){
+    // falling is still instant KO (classic platformer)
+    player.hp = 0;
     killPlayer();
   }
 
-  // checkpoint
   if (checkpoint && aabb(player, checkpoint)){
     checkpoint.active = true;
     state.respawn = { x: checkpoint.x, y: checkpoint.y - 20 };
   }
 
-  // pickups
   for (const p of pickups){
     if (p.taken) continue;
     const box = { x:p.x, y:p.y, w:p.w, h:p.h };
@@ -473,7 +501,6 @@ function updatePlayer(){
     if (p.kind === "speed") player.speedBoostTimer = 60 * 8;
   }
 
-  // coins
   for (const c of coins){
     if (c.taken) continue;
     const box = { x:c.x, y:c.y, w:c.w, h:c.h };
@@ -482,7 +509,6 @@ function updatePlayer(){
     state.coins++;
   }
 
-  // exit (locked on boss level until boss is defeated)
   if (exitDoor && aabb(player, exitDoor)){
     if (!exitDoor.locked) nextLevel();
   }
@@ -494,7 +520,6 @@ function updateEnemies(){
     if (e.x < e.left){ e.x = e.left; e.vx = Math.abs(e.vx); }
     if (e.x > e.right){ e.x = e.right; e.vx = -Math.abs(e.vx); }
 
-    // gravity on enemies
     e.vy = (e.vy ?? 0) + GRAVITY;
     const ent = { x:e.x, y:e.y, w:e.w, h:e.h, vx:0, vy:e.vy, onGround:false };
     moveAndCollide(ent, platforms);
@@ -502,7 +527,8 @@ function updateEnemies(){
     e.vy = ent.vy;
 
     if (player.deadTimer === 0 && aabb(player, e)){
-      killPlayer();
+      const knock = (player.x + player.w/2) < (e.x + e.w/2) ? -1 : 1;
+      damagePlayer(1, knock);
     }
   }
   enemies = enemies.filter(e => e.hp > 0);
@@ -516,7 +542,6 @@ function updateProjectiles(){
     pr.vy += 0.15;
     pr.life--;
 
-    // collide with platforms -> vanish
     for (const s of platforms){
       if (aabb(pr, s)){
         pr.life = 0;
@@ -524,7 +549,6 @@ function updateProjectiles(){
       }
     }
 
-    // hit enemies
     for (const e of enemies){
       if (pr.life <= 0) break;
       if (aabb(pr, e)){
@@ -533,7 +557,6 @@ function updateProjectiles(){
       }
     }
 
-    // hit boss
     if (boss && boss.hp > 0 && pr.life > 0){
       if (boss.invuln === 0 && aabb(pr, boss)){
         boss.hp -= 1;
@@ -556,7 +579,6 @@ function spawnBossBullet(x, y, vx, vy){
 }
 
 function spawnShockwave(){
-  // travels along the ground from boss position
   const floorY = boss.y + boss.h;
   const y = floorY - 18;
   bossWaves.push({ x: boss.x + boss.w*0.45, y, w: 22, h: 18, vx: -7.5, life: 90 });
@@ -564,15 +586,13 @@ function spawnShockwave(){
 }
 
 function bossChooseNext(){
-  // Weighted pick: shoot, slam, charge
   const r = Math.random();
   if (r < 0.40){
     boss.mode = "shoot";
     boss.t = 85;
-    boss.shots = 0;
   } else if (r < 0.72){
     boss.mode = "slam";
-    boss.t = 70;      // windup + jump + land
+    boss.t = 70;
     boss.didJump = false;
   } else {
     boss.mode = "chargeWindup";
@@ -586,18 +606,14 @@ function updateBoss(){
   if (player.deadTimer > 0) return;
 
   boss.wasOnGround = boss.onGround;
-
   if (boss.invuln > 0) boss.invuln--;
 
-  // face player
   const bossCx = boss.x + boss.w/2;
   const playerCx = player.x + player.w/2;
   boss.face = playerCx < bossCx ? -1 : 1;
 
-  // default gravity
   boss.vy = clamp(boss.vy + GRAVITY, -50, MAX_FALL);
 
-  // AI modes
   if (boss.mode === "intro"){
     boss.vx *= 0.85;
     boss.t--;
@@ -607,7 +623,6 @@ function updateBoss(){
     }
   }
   else if (boss.mode === "idle"){
-    // small drift toward player
     const desired = boss.face * 1.2;
     boss.vx = boss.vx * 0.85 + desired * 0.15;
 
@@ -617,14 +632,11 @@ function updateBoss(){
   else if (boss.mode === "shoot"){
     boss.vx *= 0.80;
 
-    // shoot 3 times while timer runs
     if (boss.t === 76 || boss.t === 56 || boss.t === 36){
       const dir = boss.face;
-      // slight spread
       spawnBossBullet(boss.x + boss.w/2, boss.y + 34, 6.2*dir, -0.4);
       spawnBossBullet(boss.x + boss.w/2, boss.y + 38, 6.0*dir,  0.0);
       spawnBossBullet(boss.x + boss.w/2, boss.y + 42, 5.8*dir,  0.4);
-      boss.shots++;
     }
 
     boss.t--;
@@ -634,16 +646,13 @@ function updateBoss(){
     }
   }
   else if (boss.mode === "slam"){
-    // windup then jump, then on landing make shockwave
     boss.vx *= 0.85;
 
-    // jump moment
     if (!boss.didJump && boss.t === 40 && boss.onGround){
       boss.vy = -14.5;
       boss.didJump = true;
     }
 
-    // landing detection (was in air, now on ground)
     if (boss.didJump && !boss.wasOnGround && boss.onGround){
       spawnShockwave();
       boss.mode = "idle";
@@ -667,24 +676,19 @@ function updateBoss(){
     }
   }
   else if (boss.mode === "charge"){
-    // clamp / bounce within arena bounds
     if (boss.x < boss.left){
       boss.x = boss.left;
       if (boss.bounces > 0){
         boss.vx = Math.abs(boss.vx);
         boss.bounces--;
-      } else {
-        boss.vx = 0;
-      }
+      } else boss.vx = 0;
     }
     if (boss.x + boss.w > boss.right){
       boss.x = boss.right - boss.w;
       if (boss.bounces > 0){
         boss.vx = -Math.abs(boss.vx);
         boss.bounces--;
-      } else {
-        boss.vx = 0;
-      }
+      } else boss.vx = 0;
     }
 
     boss.t--;
@@ -695,7 +699,6 @@ function updateBoss(){
     }
   }
 
-  // Apply physics collision with platforms
   const ent = { x: boss.x, y: boss.y, w: boss.w, h: boss.h, vx: boss.vx, vy: boss.vy, onGround:false };
   moveAndCollide(ent, platforms);
   boss.x = ent.x;
@@ -704,9 +707,10 @@ function updateBoss(){
   boss.vy = ent.vy;
   boss.onGround = ent.onGround;
 
-  // Boss touching player = death
+  // boss body hit = damage player (not instant kill)
   if (aabb(player, boss)){
-    killPlayer();
+    const knock = (player.x + player.w/2) < (boss.x + boss.w/2) ? -1 : 1;
+    damagePlayer(1, knock);
   }
 }
 
@@ -717,7 +721,6 @@ function updateBossProjectiles(){
     pr.vy += 0.05;
     pr.life--;
 
-    // collide with platforms
     for (const s of platforms){
       if (aabb(pr, s)){
         pr.life = 0;
@@ -725,9 +728,9 @@ function updateBossProjectiles(){
       }
     }
 
-    // hit player
     if (pr.life > 0 && player.deadTimer === 0 && aabb(player, pr)){
-      killPlayer();
+      const knock = pr.vx < 0 ? -1 : 1;
+      damagePlayer(1, knock);
       pr.life = 0;
     }
   }
@@ -739,9 +742,7 @@ function updateBossWaves(){
     w.x += w.vx;
     w.life--;
 
-    // stop if hits a platform edge / ledge
     for (const s of platforms){
-      // only treat as collision if wave overlaps platform body (not floor flush)
       if (aabb(w, s)){
         w.life = 0;
         break;
@@ -749,7 +750,8 @@ function updateBossWaves(){
     }
 
     if (w.life > 0 && player.deadTimer === 0 && aabb(player, w)){
-      killPlayer();
+      const knock = w.vx < 0 ? -1 : 1;
+      damagePlayer(1, knock);
       w.life = 0;
     }
   }
@@ -767,6 +769,118 @@ function updateToast(){
   if (state.toast.t > 0) state.toast.t--;
 }
 
+// --- 8-bit HP bar drawing helpers ---
+function drawPixelFrame(x, y, w, h){
+  // chunky 8-bit frame: double outline
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x+1, y+1, w-2, h-2);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x+2, y+2, w-4, h-4);
+}
+
+function drawSegmentBar(x, y, segments, filled, segW = 8, segH = 8, gap = 2){
+  // inside bar is drawn with black background; filled segments white; empty segments dark
+  for (let i = 0; i < segments; i++){
+    const sx = x + i * (segW + gap);
+    ctx.fillStyle = (i < filled) ? "#fff" : "#111";
+    ctx.fillRect(sx, y, segW, segH);
+  }
+}
+
+function drawLabel(text, x, y, align="left"){
+  ctx.save();
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px monospace";
+  ctx.textAlign = align;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function drawPlayerHP(){
+  // top-right
+  const segments = player.maxHp;
+  const filled = clamp(player.hp, 0, player.maxHp);
+
+  const segW = 10, segH = 10, gap = 2;
+  const innerW = segments * segW + (segments-1)*gap;
+  const innerH = segH;
+
+  const pad = 12;
+  const frameW = innerW + 8;
+  const frameH = innerH + 8;
+
+  const x = canvas.width - pad - frameW;
+  const y = pad;
+
+  drawPixelFrame(x, y, frameW, frameH);
+  drawSegmentBar(x+4, y+4, segments, filled, segW, segH, gap);
+
+  // label
+  drawLabel("HP", x + frameW - 2, y + frameH + 14, "right");
+
+  // invuln flicker indicator (tiny)
+  if (player.invuln > 0 && (player.invuln % 10) < 5){
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x + frameW - 10, y - 6, 8, 4);
+  }
+}
+
+function drawEnemyHP(ent){
+  if (!ent.maxHp || ent.maxHp <= 1) return; // skip 1hp to reduce clutter
+  const segments = clamp(ent.maxHp, 2, 10);
+  const filled = clamp(ent.hp, 0, ent.maxHp);
+
+  const segW = 5, segH = 4, gap = 1;
+  const innerW = segments * segW + (segments-1)*gap;
+  const frameW = innerW + 6;
+  const frameH = segH + 6;
+
+  const x = Math.floor(ent.x + ent.w/2 - frameW/2);
+  const y = Math.floor(ent.y - frameH - 6);
+
+  drawPixelFrame(x, y, frameW, frameH);
+  // map hp into segments (so a 4hp enemy shows 4 segments, etc.)
+  const segFilled = Math.round((filled / ent.maxHp) * segments);
+  drawSegmentBar(x+3, y+3, segments, segFilled, segW, segH, gap);
+}
+
+function drawBossBar(){
+  if (!boss || boss.hp <= 0) return;
+
+  const segments = 16; // retro bar segments
+  const filledSeg = Math.round((boss.hp / boss.maxHp) * segments);
+
+  const pad = 12;
+  const segW = 10, segH = 10, gap = 2;
+  const innerW = segments * segW + (segments-1)*gap;
+  const frameW = innerW + 8;
+  const frameH = segH + 8;
+
+  const x = pad;
+  const y = pad;
+
+  drawPixelFrame(x, y, frameW, frameH);
+  drawSegmentBar(x+4, y+4, segments, filledSeg, segW, segH, gap);
+
+  drawLabel("BOSS", x, y + frameH + 14, "left");
+}
+
+function drawToast(){
+  if (state.toast.t <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, canvas.height*0.10, canvas.width, 40);
+  ctx.globalAlpha = 1.0;
+  ctx.fillStyle = "#fff";
+  ctx.font = "16px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(state.toast.text, canvas.width/2, canvas.height*0.10 + 26);
+  ctx.restore();
+}
+
 // --- Rendering ---
 function drawTiledPlatform(rect){
   const img = images.platform;
@@ -779,80 +893,40 @@ function drawTiledPlatform(rect){
   }
 }
 
-function drawBossBar(){
-  if (!boss || boss.hp <= 0) return;
-
-  const pad = 14;
-  const barW = 360;
-  const barH = 16;
-  const x = pad;
-  const y = pad;
-
-  const pct = boss.maxHp === 0 ? 0 : boss.hp / boss.maxHp;
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(x, y, barW, barH);
-  ctx.globalAlpha = 1.0;
-
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(x+2, y+2, (barW-4)*clamp(pct, 0, 1), barH-4);
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "12px ui-sans-serif, system-ui";
-  ctx.fillText("BOSS", x, y + barH + 14);
-}
-
-function drawToast(){
-  if (state.toast.t <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, canvas.height*0.10, canvas.width, 40);
-  ctx.globalAlpha = 1.0;
-  ctx.fillStyle = "#fff";
-  ctx.font = "16px ui-sans-serif, system-ui";
-  ctx.textAlign = "center";
-  ctx.fillText(state.toast.text, canvas.width/2, canvas.height*0.10 + 26);
-  ctx.restore();
-}
-
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
 
   for (const p of platforms) drawTiledPlatform(p);
 
-  // exit door (dim if locked)
   if (exitDoor){
     ctx.globalAlpha = exitDoor.locked ? 0.45 : 1.0;
     ctx.drawImage(images.exit, exitDoor.x, exitDoor.y, exitDoor.w, exitDoor.h);
     ctx.globalAlpha = 1.0;
   }
 
-  // checkpoint
   if (checkpoint){
     ctx.globalAlpha = checkpoint.active ? 1.0 : 0.75;
     ctx.drawImage(images.checkpoint, checkpoint.x, checkpoint.y, checkpoint.w, checkpoint.h);
     ctx.globalAlpha = 1.0;
   }
 
-  // pickups
   for (const p of pickups){
     if (p.taken) continue;
     const img = p.kind === "dash" ? images.dash : images.speed;
     ctx.drawImage(img, p.x, p.y, p.w, p.h);
   }
 
-  // coins
   for (const c of coins){
     if (c.taken) continue;
     ctx.drawImage(images.coin, c.x, c.y, c.w, c.h);
   }
 
-  // enemies
+  // enemies + their HP bars
   for (const e of enemies){
     const img = e.type === "enemy1" ? images.enemy1 : images.enemy2;
     ctx.drawImage(img, e.x, e.y, e.w, e.h);
+    drawEnemyHP(e);
   }
 
   // boss projectiles
@@ -863,7 +937,7 @@ function draw(){
     ctx.globalAlpha = 1.0;
   }
 
-  // boss waves
+  // boss shockwaves
   for (const w of bossWaves){
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = "#fff";
@@ -871,7 +945,7 @@ function draw(){
     ctx.globalAlpha = 1.0;
   }
 
-  // player projectiles (phone)
+  // player phone projectiles
   for (const pr of projectiles){
     ctx.drawImage(images.phone, pr.x, pr.y, pr.w, pr.h);
   }
@@ -881,10 +955,8 @@ function draw(){
     const bImg = boss.type === "enemy2" ? images.enemy2 : images.enemy1;
 
     ctx.save();
-    // blink while invulnerable
     if (boss.invuln > 0 && (boss.invuln % 4) < 2) ctx.globalAlpha = 0.55;
 
-    // flip based on face
     if (boss.face < 0){
       ctx.translate(boss.x + boss.w, boss.y);
       ctx.scale(-1, 1);
@@ -893,12 +965,17 @@ function draw(){
       ctx.drawImage(bImg, boss.x, boss.y, boss.w, boss.h);
     }
     ctx.restore();
+
+    // boss HP bar (top-left)
+    drawBossBar();
   }
 
-  // player
+  // player render (blink when invulnerable)
   const pImg = images[`char_${selectedCharId}`];
   if (pImg){
     ctx.save();
+    if (player.invuln > 0 && (player.invuln % 10) < 5) ctx.globalAlpha = 0.55;
+
     if (player.facing < 0){
       ctx.translate(player.x + player.w, player.y);
       ctx.scale(-1, 1);
@@ -912,7 +989,9 @@ function draw(){
     ctx.fillRect(player.x, player.y, player.w, player.h);
   }
 
-  // death flash
+  // player HP bar (top-right)
+  drawPlayerHP();
+
   if (player.deadTimer > 0){
     ctx.globalAlpha = 0.2;
     ctx.fillStyle = "#fff";
@@ -920,16 +999,12 @@ function draw(){
     ctx.globalAlpha = 1.0;
   }
 
-  // Boss UI + Toast overlay
-  drawBossBar();
   drawToast();
 }
 
 let last = performance.now();
 function loop(now){
-  const dt = (now - last) / 16.67;
   last = now;
-  state.time += dt;
 
   if (state.running){
     updatePlayer();
