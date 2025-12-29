@@ -17,6 +17,19 @@
       <div class="stage">
         <canvas id="game" width="960" height="540"></canvas>
 
+        <!-- Tutorial Overlay (Stage 1 only) -->
+        <div id="tutorialOverlay" class="tutorial hidden" aria-hidden="true">
+          <div class="tutorial-title">HOW TO PLAY</div>
+          <div class="tutorial-sub">Complete these steps:</div>
+          <div class="tutorial-list">
+            <div id="tutMove"  class="tut-item">[ ] Move left/right (A/D or ←/→)</div>
+            <div id="tutJump"  class="tut-item">[ ] Jump (Space)</div>
+            <div id="tutThrow" class="tut-item">[ ] Throw phone (F)</div>
+            <div id="tutDoor"  class="tut-item">[ ] Reach the Exit Door</div>
+          </div>
+          <div class="tutorial-tip">Tip: Press Esc to pause anytime.</div>
+        </div>
+
         <!-- Character Select -->
         <div id="menu" class="menu">
           <h2 style="margin:0 0 6px 0;">Choose your character</h2>
@@ -35,6 +48,17 @@
           <div>Dash: <span id="hudDash">No</span></div>
           <div>Speed: <span id="hudSpeed">Normal</span></div>
           <div>Throw: <span id="hudThrow">Ready</span></div>
+        </div>
+
+        <!-- LOADING OVERLAY -->
+        <div id="loadingOverlay" class="overlay hidden" aria-hidden="true">
+          <div class="overlay-card loading-card">
+            <div class="overlay-title">LOADING NEXT STAGE</div>
+            <div class="loading-bar">
+              <div id="loadingFill" class="loading-fill"></div>
+            </div>
+            <div id="loadingText" class="overlay-sub">Generating the next level...</div>
+          </div>
         </div>
 
         <!-- PAUSE OVERLAY -->
@@ -86,4 +110,3 @@
   <script src="main.js"></script>
 </body>
 </html>
-
