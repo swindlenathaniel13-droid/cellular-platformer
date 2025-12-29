@@ -51,11 +51,39 @@
           <div>Throw: <span id="hudThrow">Ready</span></div>
         </div>
 
-        <!-- STAGE CLEAR OVERLAY (Shop only available here, once per stage) -->
+        <!-- STAGE CLEAR OVERLAY -->
         <div id="stageOverlay" class="overlay hidden" aria-hidden="true">
           <div class="overlay-card stage-card">
-            <div class="overlay-title">STAGE CLEAR</div>
-            <div class="overlay-sub">Coins: <span id="stageCoins">0</span> · Shop: <span id="stageShopStatus">Available</span></div>
+            <div class="stage-head">
+              <img id="stageCharImg" class="stage-char" alt="Character" />
+              <div class="stage-head-text">
+                <div class="overlay-title">STAGE CLEAR</div>
+                <div class="overlay-sub">
+                  Coins Total: <span id="stageCoins">0</span>
+                  · Shop: <span id="stageShopStatus">Available</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stage Stats Row -->
+            <div class="stage-stats">
+              <div class="stat">
+                <div class="stat-label">TIME</div>
+                <div id="statTime" class="stat-value">0.0s</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">COINS</div>
+                <div id="statCoins" class="stat-value">+0</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">DAMAGE</div>
+                <div id="statDamage" class="stat-value">0</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">DEFEATED</div>
+                <div id="statDefeated" class="stat-value">0</div>
+              </div>
+            </div>
 
             <div class="overlay-buttons" style="margin-top:14px;">
               <button id="stageShopBtn" class="btn btn-solid">Open Shop</button>
@@ -99,7 +127,7 @@
           </div>
         </div>
 
-        <!-- SHOP OVERLAY (opened only from STAGE CLEAR) -->
+        <!-- SHOP OVERLAY -->
         <div id="shopOverlay" class="overlay hidden" aria-hidden="true">
           <div class="overlay-card shop-card">
             <div class="shop-head">
