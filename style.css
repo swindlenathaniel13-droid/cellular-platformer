@@ -14,7 +14,7 @@ body{
   color:var(--text);
 }
 
-/* UPDATED: make the whole game area bigger on desktop */
+/* Bigger game area */
 .wrap{
   width: min(98vw, 1600px);
   margin: 0 auto;
@@ -40,7 +40,6 @@ body{
   gap:12px;
 }
 
-/* UPDATED: let the canvas fill more of the screen vertically too */
 canvas{
   width:100%;
   height:auto;
