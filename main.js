@@ -1,9 +1,9 @@
 /* main.js
-   ✅ Edgar is NOT playable (only shopkeeper)
+   ✅ Edgar is NOT playable (shopkeeper only)
    ✅ Shop ONLY accessible after stage clear, once per stage
    ✅ Stage 1 tutorial overlay
    ✅ Bigger exit door + 5–10s loading between stages
-   ✅ Boss + enemy systems included
+   ✅ Stage Clear: character idle pose + stage stats row
 */
 
 const ASSETS = {
@@ -77,6 +77,13 @@ const stageShopBtn = document.getElementById("stageShopBtn");
 const stageNextBtn = document.getElementById("stageNextBtn");
 const stageReplayBtn = document.getElementById("stageReplayBtn");
 const stageQuitBtn = document.getElementById("stageQuitBtn");
+
+// Stage clear: character + stats elements
+const stageCharImg = document.getElementById("stageCharImg");
+const statTimeEl = document.getElementById("statTime");
+const statCoinsEl = document.getElementById("statCoins");
+const statDamageEl = document.getElementById("statDamage");
+const statDefeatedEl = document.getElementById("statDefeated");
 
 // Loading UI
 const loadingOverlay = document.getElementById("loadingOverlay");
@@ -311,7 +318,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
     if (!state.running) return;
     if (state.transition.active) return;
-    if (state.stageClear.active) return; // stage clear screen owns the UI
+    if (state.stageClear.active) return;
     togglePause();
     return;
   }
@@ -386,6 +393,17 @@ const state = {
     active: false,
     shopUsed: false,
     nextIndex: 0
+  },
+
+  // NEW: Stage Stats
+  stageStats: {
+    startMs: 0,
+    endMs: 0,
+    coinsStart: 0,
+    coinsCollected: 0,
+    damageTaken: 0,
+    enemiesDefeated: 0,
+    timeSec: 0
   },
 
   transition: {
@@ -628,28 +646,46 @@ function openShopFromStageClear(){
 function closeShopToStageClear(){
   state.shopOpen = false;
   setOverlay(shopOverlay, false);
-
-  // return to stage clear screen
   setOverlay(stageOverlay, true);
   updateStageClearUI();
 }
 
 closeShopBtn.addEventListener("click", closeShopToStageClear);
 
-// -------------------- Stage Clear --------------------
+// -------------------- Stage Clear + Stats --------------------
+function formatTime(sec){
+  if (!Number.isFinite(sec)) return "0.0s";
+  return `${sec.toFixed(1)}s`;
+}
+
 function updateStageClearUI(){
   stageCoinsEl.textContent = String(state.coins);
 
   const available = !state.stageClear.shopUsed;
   stageShopStatusEl.textContent = available ? "Available" : "Used";
   stageShopBtn.disabled = !available;
+
+  // stats display (already frozen at stage end)
+  statTimeEl.textContent = formatTime(state.stageStats.timeSec);
+  statCoinsEl.textContent = `+${state.stageStats.coinsCollected}`;
+  statDamageEl.textContent = `${state.stageStats.damageTaken}`;
+  statDefeatedEl.textContent = `${state.stageStats.enemiesDefeated}`;
+
+  // character portrait
+  const char = ASSETS.chars.find(c => c.id === selectedCharId);
+  if (char) stageCharImg.src = char.src;
 }
 
 function openStageClear(nextIndex){
-  // freeze gameplay here
+  // freeze gameplay
   clearKeys();
   state.paused = false;
   setOverlay(pauseOverlay, false);
+
+  // finalize stats
+  state.stageStats.endMs = performance.now();
+  state.stageStats.timeSec = (state.stageStats.endMs - state.stageStats.startMs) / 1000;
+  state.stageStats.coinsCollected = Math.max(0, state.coins - state.stageStats.coinsStart);
 
   state.stageClear.active = true;
   state.stageClear.nextIndex = nextIndex;
@@ -677,8 +713,6 @@ stageReplayBtn.addEventListener("click", () => {
   closeStageClear();
   resetToLevel(state.levelIndex);
 });
-
-stageQuitBtn.addEventListener("click", quitToMenu);
 
 // -------------------- Loading transition --------------------
 function beginTransition(nextIndex){
@@ -711,7 +745,7 @@ function updateTransition(dtMs){
   }
 }
 
-// -------------------- Collision solids (platform surface offset) --------------------
+// -------------------- Collision solids --------------------
 function rebuildSolids(){
   solids = platforms.map(p => {
     const y = p.y + PLATFORM_SURFACE_Y;
@@ -758,7 +792,7 @@ function snapToSurface(ent){
   }
 }
 
-// -------------------- Toast / death --------------------
+// -------------------- Toast / death / stats damage --------------------
 function setToast(text, frames = 120){
   state.toast.text = text;
   state.toast.t = frames;
@@ -770,6 +804,9 @@ function updateToast(){
 function damagePlayer(amount, knockDir = 0){
   if (player.deadTimer > 0) return;
   if (player.invuln > 0) return;
+
+  // NEW: stage stats damage
+  state.stageStats.damageTaken += amount;
 
   player.hp -= amount;
   player.invuln = 45;
@@ -880,15 +917,24 @@ function updateTutorial(){
   setTutDone(tutDoorEl, state.tutorial.reachedDoor);
 }
 
-// -------------------- Level Reset --------------------
+// -------------------- Level Reset + Stage Stats reset --------------------
+function resetStageStats(){
+  state.stageStats.startMs = performance.now();
+  state.stageStats.endMs = 0;
+  state.stageStats.coinsStart = state.coins;
+  state.stageStats.coinsCollected = 0;
+  state.stageStats.damageTaken = 0;
+  state.stageStats.enemiesDefeated = 0;
+  state.stageStats.timeSec = 0;
+}
+
 function resetToLevel(idx){
   state.levelIndex = idx;
   const L = getLevel(idx);
 
   hudLevel.textContent = String(idx + 1);
-  state.respawn = { x: L.spawn.x, y: 0 };
 
-  // close any overlays
+  // close overlays
   state.paused = false;
   setOverlay(pauseOverlay, false);
   setOverlay(shopOverlay, false);
@@ -902,6 +948,9 @@ function resetToLevel(idx){
 
   if (idx === 0) startTutorial();
   else stopTutorial();
+
+  // NEW: reset per-stage stats
+  resetStageStats();
 
   const spawnPlaced = placeOnSurface(L.spawn.x, player.w, player.h);
   player.x = spawnPlaced.x;
@@ -943,12 +992,15 @@ function resetToLevel(idx){
 
   enemies = (L.enemies || []).map(e => ({
     ...e,
-    w: ENEMY_SZ.w, h: ENEMY_SZ.h, dw: ENEMY_SZ.dw, dh: ENEMY_SZ.dh,
+    w: Math.round(makeSizes(BASE.enemy).w),
+    h: Math.round(makeSizes(BASE.enemy).h),
+    dw: Math.round(makeSizes(BASE.enemy).dw),
+    dh: Math.round(makeSizes(BASE.enemy).dh),
     vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
     vy: 0,
     maxHp: e.hp,
     left: e.left,
-    right: Math.max(e.left + 10, e.right - ENEMY_SZ.w)
+    right: Math.max(e.left + 10, e.right - Math.round(makeSizes(BASE.enemy).w))
   }));
   enemies.forEach(e => {
     const placed = placeOnSurface(e.x, e.w, e.h);
@@ -989,7 +1041,7 @@ function resetToLevel(idx){
   updateHUD();
 }
 
-// -------------------- Boss Logic --------------------
+// -------------------- Boss Logic (same as prior) --------------------
 function spawnBossBullet(x, y, vx, vy){
   bossProjectiles.push({ x, y, w: 14, h: 14, vx, vy, life: 150 });
 }
@@ -1109,7 +1161,7 @@ function updateBossWaves(){
   bossWaves = bossWaves.filter(w => w.life > 0);
 }
 
-// -------------------- Player + Enemies + Projectiles --------------------
+// -------------------- Player + Enemies + Projectiles (stats defeated) --------------------
 function updatePlayer(){
   if (player.deadTimer > 0){
     player.deadTimer--;
@@ -1190,7 +1242,7 @@ function updatePlayer(){
     state.coins++;
   }
 
-  // Exit -> Stage Clear screen (NOT shop/pause)
+  // Exit -> Stage Clear
   if (exitDoor && aabb(player, exitDoor)){
     if (!exitDoor.locked){
       if (state.levelIndex === 0) state.tutorial.reachedDoor = true;
@@ -1216,7 +1268,14 @@ function updateEnemies(){
       damagePlayer(1, knock);
     }
   }
+
+  // NEW: track defeated count when enemies disappear
+  const before = enemies.length;
   enemies = enemies.filter(e => e.hp > 0);
+  const after = enemies.length;
+  if (after < before){
+    state.stageStats.enemiesDefeated += (before - after);
+  }
 }
 
 function updateProjectiles(){
@@ -1247,6 +1306,9 @@ function updateProjectiles(){
           boss.hp = 0;
           unlockExit();
           setToast("BOSS DEFEATED!", 140);
+
+          // NEW: count boss as defeated
+          state.stageStats.enemiesDefeated += 1;
         }
       }
     }
@@ -1263,7 +1325,7 @@ function updateHUD(){
   hudThrow.textContent = player.throwCooldown === 0 ? "Ready" : "Cooling";
 }
 
-// -------------------- 8-bit HP bars --------------------
+// -------------------- 8-bit HP bar --------------------
 function drawPixelFrame(x, y, w, h){
   ctx.fillStyle = "#000"; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = "#fff"; ctx.fillRect(x+1, y+1, w-2, h-2);
@@ -1442,7 +1504,6 @@ function startGame(){
   state.running = true;
   state.paused = false;
 
-  // close overlays
   setOverlay(pauseOverlay, false);
   setOverlay(shopOverlay, false);
   setOverlay(stageOverlay, false);
