@@ -49,13 +49,7 @@
   // ========= CANVAS SETTINGS =========
   ctx.imageSmoothingEnabled = false;
 
-  // ========= ASSETS (with fallbacks) =========
-  // This will try:
-  // - ./File.png
-  // - File.png
-  // - ./assets/File.png
-  // - assets/File.png
-  // so you can keep images either in root OR in /assets
+  // ========= ASSETS (with fallbacks root or /assets) =========
   const ASSETS = {
     background: ["Background_Pic.png"],
     platform: ["Platform.png"],
@@ -77,7 +71,7 @@
   };
 
   const imgs = { characters: {} };
-  const resolvedUrls = {}; // for debugging
+  const resolvedUrls = {};
 
   function loadImage(url) {
     return new Promise((resolve, reject) => {
@@ -92,7 +86,6 @@
     const prefixes = ["", "./", "assets/", "./assets/"];
     const urls = [];
     for (const p of prefixes) urls.push(p + fileName);
-    // dedupe
     return [...new Set(urls)];
   }
 
@@ -104,9 +97,7 @@
           const im = await loadImage(url);
           resolvedUrls[label] = url;
           return im;
-        } catch (_) {
-          // keep trying
-        }
+        } catch (_) {}
       }
     }
     console.warn(`[ASSET MISSING] ${label} tried:`, fileNameOptions);
@@ -362,20 +353,22 @@
     clearStage();
     GAME.worldW = 2200;
     GAME.worldH = canvas.height;
-    const floorY = 610;
+    const floorY = Math.round(canvas.height - 110);
 
     GAME.platforms.push({ x: -200, y: floorY, w: GAME.worldW + 400, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 260, y: 500, w: 340, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 740, y: 440, w: 360, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 1220, y: 500, w: 320, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 260, y: floorY - 110, w: 340, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 740, y: floorY - 170, w: 360, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 1220, y: floorY - 110, w: 320, h: PLATFORM_DRAW_H });
 
-    for (let i = 0; i < 6; i++) GAME.coinsOnMap.push({ x: 310 + i * 60, y: 460, r: 14, taken: false });
+    for (let i = 0; i < 6; i++) GAME.coinsOnMap.push({ x: 310 + i * 60, y: floorY - 150, r: 14, taken: false });
 
     const e = makeEnemy("enemy1", 980, floorY - 64, false);
     e.patrolMin = 880; e.patrolMax = 1120;
     GAME.enemies.push(e);
 
-    GAME.exit = { x: 1880, y: floorY - 150, w: 70, h: 150 };
+    // Door sits on the floor lane (always reachable)
+    GAME.exit = { x: 1880, y: floorY - 200, w: 96, h: 200 };
+
     resetPlayerAt(120, floorY - player.h);
 
     tutorialBox.classList.remove("hidden");
@@ -389,12 +382,12 @@
     clearStage();
     GAME.worldW = 2400;
     GAME.worldH = canvas.height;
-    const floorY = 610;
+    const floorY = Math.round(canvas.height - 110);
 
     GAME.platforms.push({ x: -200, y: floorY, w: GAME.worldW + 400, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 380, y: 500, w: 420, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 1000, y: 430, w: 460, h: PLATFORM_DRAW_H });
-    GAME.platforms.push({ x: 1700, y: 500, w: 420, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 380, y: floorY - 110, w: 420, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 1000, y: floorY - 180, w: 460, h: PLATFORM_DRAW_H });
+    GAME.platforms.push({ x: 1700, y: floorY - 110, w: 420, h: PLATFORM_DRAW_H });
 
     const boss = makeEnemy("enemy2", 1500, floorY - 70, true);
     boss.patrolMin = 1200; boss.patrolMax = 1850;
@@ -402,62 +395,145 @@
     GAME.enemies.push(boss);
 
     GAME.exitLocked = true;
-    GAME.exit = { x: 2160, y: floorY - 165, w: 78, h: 165 };
+    GAME.exit = { x: 2160, y: floorY - 220, w: 100, h: 220 };
 
-    for (let i = 0; i < 10; i++) GAME.coinsOnMap.push({ x: 520 + i * 160, y: 380 + (i % 2) * 50, r: 14, taken: false });
+    for (let i = 0; i < 10; i++) {
+      GAME.coinsOnMap.push({
+        x: 520 + i * 160,
+        y: (floorY - 250) + (i % 2) * 50,
+        r: 14,
+        taken: false
+      });
+    }
 
     resetPlayerAt(160, floorY - player.h);
     tutorialBox.classList.add("hidden");
   }
 
+  // ======= IMPORTANT: Procedural generation is now GUARANTEED PASSABLE =======
   function generateProceduralStage(stageNum) {
     clearStage();
+
     const seed = 1337 + stageNum * 999;
     const rnd = mulberry32(seed);
 
-    GAME.worldW = 2600 + stageNum * 120;
+    // Slight growth, but not insane
+    GAME.worldW = 2400 + stageNum * 120;
     GAME.worldH = canvas.height;
-    const floorY = 610;
 
-    GAME.platforms.push({ x: -200, y: floorY, w: GAME.worldW + 400, h: PLATFORM_DRAW_H });
+    const floorY = Math.round(canvas.height - 110);
+    const clearZoneRight = 520; // last px kept clean so exit approach is never blocked
 
-    const path = [];
-    let px = 220, py = 520;
-    for (let i = 0; i < 7 + Math.min(6, stageNum); i++) {
-      const w = 320 + Math.floor(rnd() * 220);
-      path.push({ x: px, y: py, w, h: PLATFORM_DRAW_H });
+    // 1) Always add full floor across the entire level (exit ALWAYS reachable)
+    const floorPlat = { x: -200, y: floorY, w: GAME.worldW + 400, h: PLATFORM_DRAW_H };
+    GAME.platforms.push(floorPlat);
 
-      px += 260 + Math.floor(rnd() * (380 - 260));
-      const delta = (rnd() < 0.55) ? -Math.floor(rnd() * 120) : Math.floor(rnd() * 140);
-      py = clamp(py + delta, 360, 540);
+    // 2) Safety constraints based on player size & collision rules
+    // If platform is too low, you can't run under it on the ground (you bonk).
+    // Condition: platform bottom must be ABOVE player top when on floor:
+    // platform.y + PLATFORM_DRAW_H <= floorY - player.h
+    const maxPlatformY = (floorY - player.h) - PLATFORM_DRAW_H - 8; // safety margin
+    const minPlatformY = Math.max(260, maxPlatformY - 160);         // keep them not absurdly high
+
+    // Jump-safe spacing (conservative)
+    const GAP_MIN = 80;
+    const GAP_MAX = 170;          // no more "impossible long gaps"
+    const STEP_UP_MAX = 95;       // max rise between platforms
+    const STEP_DOWN_MAX = 115;    // max drop between platforms
+
+    // Platform sizes (big, readable)
+    const W_MIN = 320;
+    const W_MAX = 520;
+
+    // 3) Build a “golden path” of platforms (all reachable) but keep ground open
+    const pathPlatforms = [];
+    let x = 320;
+    let y = clamp(maxPlatformY - 30, minPlatformY, maxPlatformY); // start in a safe band
+
+    const targetEndX = GAME.worldW - clearZoneRight;
+    let segments = 6 + Math.min(3, Math.floor(stageNum / 2));     // 6..9 segments
+
+    for (let i = 0; i < segments; i++) {
+      const w = Math.floor(W_MIN + rnd() * (W_MAX - W_MIN));
+      const plat = { x, y, w, h: PLATFORM_DRAW_H };
+      pathPlatforms.push(plat);
+      GAME.platforms.push(plat);
+
+      // Advance
+      const gap = Math.floor(GAP_MIN + rnd() * (GAP_MAX - GAP_MIN));
+      x = x + w + gap;
+
+      // Stop if we reached the safe end area
+      if (x > targetEndX - 260) break;
+
+      // Vertical change (clamped)
+      const raw = (rnd() < 0.5 ? -1 : 1) * Math.floor(40 + rnd() * 70);
+      let nextY = y + raw;
+
+      // Clamp step up/down
+      if (nextY < y) nextY = Math.max(nextY, y - STEP_UP_MAX);
+      if (nextY > y) nextY = Math.min(nextY, y + STEP_DOWN_MAX);
+
+      y = clamp(nextY, minPlatformY, maxPlatformY);
     }
-    for (const p of path) GAME.platforms.push(p);
 
-    for (let i = 0; i < 6; i++) {
-      const w = 220 + Math.floor(rnd() * 260);
-      const x = 300 + Math.floor(rnd() * (GAME.worldW - 600));
-      const y = 360 + Math.floor(rnd() * 180);
-      GAME.platforms.push({ x, y, w, h: PLATFORM_DRAW_H });
+    // 4) Add a couple of optional side platforms (still safe & not in exit zone)
+    const extraCount = 2 + (stageNum >= 6 ? 1 : 0);
+    for (let i = 0; i < extraCount; i++) {
+      const w = Math.floor(260 + rnd() * 320);
+      const px = Math.floor(520 + rnd() * (GAME.worldW - clearZoneRight - 900));
+      const py = Math.floor(minPlatformY + rnd() * (maxPlatformY - minPlatformY));
+      GAME.platforms.push({ x: px, y: py, w, h: PLATFORM_DRAW_H });
     }
 
+    // 5) Exit door on the floor lane (ALWAYS reachable)
     GAME.exitLocked = false;
-    GAME.exit = { x: GAME.worldW - 220, y: floorY - 165, w: 78, h: 165 };
+    GAME.exit = {
+      x: GAME.worldW - 180,
+      y: floorY - 230,
+      w: 110,
+      h: 230
+    };
 
+    // 6) Coins: place above golden path (readable, reachable)
+    for (const p of pathPlatforms) {
+      const n = 1 + (rnd() < 0.45 ? 1 : 0) + (rnd() < 0.2 ? 1 : 0);
+      for (let k = 0; k < n; k++) {
+        GAME.coinsOnMap.push({
+          x: p.x + 60 + rnd() * Math.max(40, p.w - 120),
+          y: p.y - 28 - k * 26,
+          r: 14,
+          taken: false
+        });
+      }
+    }
+
+    // 7) Enemies: spawn ON platforms correctly (no floating/sinking)
+    // Choose from the floor + some path platforms, but avoid the spawn area and the exit approach.
+    const enemySpawnPlatforms = [floorPlat, ...pathPlatforms].filter(p => p.x < (GAME.worldW - clearZoneRight - 200));
     const enemyCount = 2 + Math.min(5, stageNum);
+
     for (let i = 0; i < enemyCount; i++) {
       const type = rnd() < 0.55 ? "enemy1" : "enemy2";
-      const ex = 600 + Math.floor(rnd() * (GAME.worldW - 900));
-      const e = makeEnemy(type, ex, floorY - 70, false);
-      e.patrolMin = ex - (140 + Math.floor(rnd() * 160));
-      e.patrolMax = ex + (140 + Math.floor(rnd() * 160));
+      const dummy = makeEnemy(type, 0, 0, false);
+
+      const p = enemySpawnPlatforms[Math.floor(rnd() * enemySpawnPlatforms.length)];
+
+      // Keep away from player spawn (first 500px)
+      let ex = p.x + 40 + rnd() * Math.max(20, p.w - dummy.w - 80);
+      if (ex < 520) ex = 520 + rnd() * 200;
+
+      // IMPORTANT: y = platform.y - enemy.h so feet sit on the platform
+      const e = makeEnemy(type, ex, p.y - dummy.h, false);
+
+      // Patrol bounded to the platform surface
+      e.patrolMin = p.x + 10;
+      e.patrolMax = p.x + p.w - e.w - 10;
+
       GAME.enemies.push(e);
     }
 
-    for (const p of path) {
-      if (rnd() < 0.75) GAME.coinsOnMap.push({ x: p.x + 40 + rnd() * (p.w - 80), y: p.y - 24, r: 14, taken: false });
-      if (rnd() < 0.35) GAME.coinsOnMap.push({ x: p.x + 60 + rnd() * (p.w - 120), y: p.y - 70, r: 14, taken: false });
-    }
-
+    // 8) Spawn player on ground (always has a path)
     resetPlayerAt(140, floorY - player.h);
     tutorialBox.classList.add("hidden");
   }
@@ -488,7 +564,6 @@
     stageClearOverlay.classList.add("hidden");
     shopOverlay.classList.remove("hidden");
 
-    // use Edgar art as shopkeeper
     shopkeeperImg.src = (ASSETS.characters.Edgar?.[0] || "Edgar.png");
 
     renderShop();
@@ -866,7 +941,6 @@
   btnStart.addEventListener("click", startGame);
 
   btnResume.addEventListener("click", () => { if (GAME.state === "paused") togglePause(); });
-
   btnRestart.addEventListener("click", () => { hideAllOverlays(); loadStage(GAME.stage); GAME.state = "play"; });
 
   btnBackMenu.addEventListener("click", () => {
