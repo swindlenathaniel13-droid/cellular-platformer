@@ -1,7 +1,8 @@
-/* Pixel Platformer - main.js
-   ✅ Procedural levels are INSIDE this file (no extra script needed)
-   ✅ Fix “floating”: PLATFORM_SURFACE_Y shifts the collision standing surface
-   ✅ Fix “hitbox too big”: separate DRAW size vs HITBOX size (HITBOX_SCALE)
+/* main.js
+   ✅ Pause Menu (Esc) + Shop
+   ✅ Shop uses coins and upgrades persist across levels (for this run)
+
+   NOTE: This file keeps your procedural generation + platform surface collision system.
 */
 
 const ASSETS = {
@@ -23,31 +24,24 @@ const ASSETS = {
   ],
 };
 
-// -------------------- IMPORTANT TUNING KNOBS --------------------
-// If enemies still look like they float: increase PLATFORM_SURFACE_Y (try 14, 16, 18)
-// If they look sunk into the platform: decrease it (try 8, 6)
-const PLATFORM_SURFACE_Y = 14;
-
-// Visual size vs collision size
-const SPRITE_SCALE = 2.0;   // how big the art is drawn
-const HITBOX_SCALE = 0.72;  // how big the collision box is relative to art (smaller = better)
-
-// Small visual trick: sink the art slightly into the platform surface (does NOT affect collision)
+// -------------------- TUNING --------------------
+const PLATFORM_SURFACE_Y = 14;  // adjust if sprites look floaty vs sunk
+const SPRITE_SCALE = 2.0;
+const HITBOX_SCALE = 0.72;
 const FOOT_SINK = 2;
 
-// Procedural controls
 const USE_PROCEDURAL_LEVELS = true;
-const BOSS_EVERY = 3;           // every 3rd level is a boss level
-const START_LEVEL_INDEX = 0;    // set to 2 to jump straight to a boss test
+const BOSS_EVERY = 3;
+const START_LEVEL_INDEX = 0;
 
-// Optional: show hitboxes (debug)
 const DEBUG_HITBOX = false;
-// ---------------------------------------------------------------
+// ----------------------------------------------
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
+// UI
 const menuEl = document.getElementById("menu");
 const charGridEl = document.getElementById("charGrid");
 const startBtn = document.getElementById("startBtn");
@@ -59,12 +53,24 @@ const hudDash = document.getElementById("hudDash");
 const hudSpeed = document.getElementById("hudSpeed");
 const hudThrow = document.getElementById("hudThrow");
 
+// Pause + Shop UI
+const pauseOverlay = document.getElementById("pauseOverlay");
+const resumeBtn = document.getElementById("resumeBtn");
+const shopBtn = document.getElementById("shopBtn");
+const restartBtn = document.getElementById("restartBtn");
+const quitBtn = document.getElementById("quitBtn");
+
+const shopOverlay = document.getElementById("shopOverlay");
+const shopCoinsEl = document.getElementById("shopCoins");
+const closeShopBtn = document.getElementById("closeShopBtn");
+const shopListEl = document.getElementById("shopList");
+
 function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
 function aabb(a, b){
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-// -------------------- RNG + Procedural Level Gen (inside main.js) --------------------
+// -------------------- RNG + Procedural --------------------
 function mulberry32(seed){
   let t = seed >>> 0;
   return function(){
@@ -85,15 +91,11 @@ function getRunSeed(){
 }
 const RUN_SEED = getRunSeed();
 
-// Generates a guaranteed-beatable “staircase” course.
-// NOTE: Platforms use y as the TOP of the image. Collision surface is y + PLATFORM_SURFACE_Y.
 function generateProceduralLevel(levelIndex){
   const rng = mulberry32((RUN_SEED + levelIndex * 10007) >>> 0);
-
   const W = canvas.width;
-  const H = canvas.height;
 
-  const groundY = 460; // platform image top
+  const groundY = 460;
   const platforms = [{ x: 0, y: groundY, w: W, h: 80 }];
 
   const difficulty = 1 + Math.floor(levelIndex / BOSS_EVERY);
@@ -106,7 +108,6 @@ function generateProceduralLevel(levelIndex){
     const w = rInt(rng, 170, 280);
     const h = 28;
 
-    // keep jumps safe: gaps 90..150, vertical shift -60..40
     x += rInt(rng, 95, 145);
     y = clamp(y + rInt(rng, -60, 40), 220, 410);
 
@@ -121,7 +122,7 @@ function generateProceduralLevel(levelIndex){
   const last = platforms[platforms.length - 1];
   const exit = {
     x: Math.floor(last.x + last.w - 54),
-    y: Math.floor(last.y + PLATFORM_SURFACE_Y - 56) // place on the surface
+    y: Math.floor(last.y + PLATFORM_SURFACE_Y - 56)
   };
 
   const mid = platforms[Math.floor(platforms.length / 2)];
@@ -130,7 +131,6 @@ function generateProceduralLevel(levelIndex){
     y: Math.floor(mid.y + PLATFORM_SURFACE_Y - 50)
   };
 
-  // coins above platforms
   const coins = [];
   platforms.slice(1).forEach((p, idx) => {
     const n = rInt(rng, 1, 3);
@@ -143,7 +143,6 @@ function generateProceduralLevel(levelIndex){
     }
   });
 
-  // pickups
   const pickups = [];
   if (platforms.length > 2){
     const p = platforms[2];
@@ -156,7 +155,6 @@ function generateProceduralLevel(levelIndex){
     pickups.push({ kind:"speed", x: Math.floor(p.x + p.w*0.5), y: Math.floor(surface - 35) });
   }
 
-  // enemies patrol on a few platforms
   const enemies = [];
   const enemyCount = clamp(1 + Math.floor(difficulty * 1.2), 1, 6);
   const pads = platforms.slice(2, -1);
@@ -172,7 +170,7 @@ function generateProceduralLevel(levelIndex){
     enemies.push({
       type,
       x: Math.floor(p.x + rInt(rng, 10, Math.max(10, p.w - 60))),
-      y: Math.floor(surface - 60), // will snap anyway
+      y: Math.floor(surface - 60),
       left: Math.floor(p.x + 6),
       right: Math.floor(p.x + p.w - 6),
       hp
@@ -192,9 +190,8 @@ function generateProceduralLevel(levelIndex){
     boss: null
   };
 }
-// -------------------------------------------------------------------------------
 
-// -------------------- Static Boss Template --------------------
+// -------------------- Boss Template --------------------
 const BOSS_LEVEL_TEMPLATE = {
   name: "Boss: Signal Tyrant",
   spawn: { x: 70, y: 380 },
@@ -227,15 +224,14 @@ const BOSS_LEVEL_TEMPLATE = {
 };
 
 function getLevel(idx){
-  if (!USE_PROCEDURAL_LEVELS) {
-    // fallback: just loop the boss template after a couple levels if you disable procedural
-    return (idx % BOSS_EVERY) === (BOSS_EVERY - 1) ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
-  }
   const isBoss = (idx % BOSS_EVERY) === (BOSS_EVERY - 1);
+  if (!USE_PROCEDURAL_LEVELS){
+    return isBoss ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
+  }
   return isBoss ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
 }
 
-// -------------------- Asset Loading --------------------
+// -------------------- Assets --------------------
 function loadImage(src){
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -266,13 +262,25 @@ async function loadAll(){
 
 // -------------------- Input --------------------
 const KEYS = { left:false, right:false, jump:false, dash:false, throw:false };
+
+function clearKeys(){
+  KEYS.left = KEYS.right = KEYS.jump = KEYS.dash = KEYS.throw = false;
+}
+
 window.addEventListener("keydown", (e) => {
+  // Pause toggle: Esc (even if keys are being held)
+  if (e.code === "Escape") {
+    if (state.running) togglePause();
+    return;
+  }
+
   if (["ArrowLeft","KeyA"].includes(e.code)) KEYS.left = true;
   if (["ArrowRight","KeyD"].includes(e.code)) KEYS.right = true;
   if (e.code === "Space") KEYS.jump = true;
   if (e.code === "ShiftLeft" || e.code === "ShiftRight") KEYS.dash = true;
   if (e.code === "KeyF") KEYS.throw = true;
 });
+
 window.addEventListener("keyup", (e) => {
   if (["ArrowLeft","KeyA"].includes(e.code)) KEYS.left = false;
   if (["ArrowRight","KeyD"].includes(e.code)) KEYS.right = false;
@@ -281,7 +289,7 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "KeyF") KEYS.throw = false;
 });
 
-// -------------------- Sizes: DRAW big, HITBOX smaller --------------------
+// -------------------- Sizes --------------------
 const BASE = {
   player: { w: 34, h: 48 },
   enemy:  { w: 40, h: 40 },
@@ -317,10 +325,22 @@ let selectedCharId = null;
 
 const state = {
   running: false,
+  paused: false,
+  shopOpen: false,
+
   levelIndex: 0,
   coins: 0,
   respawn: { x: 60, y: 380 },
-  toast: { text: "", t: 0 }
+  toast: { text: "", t: 0 },
+
+  // Shop upgrades (persist across levels for this run)
+  upgrades: {
+    maxHpBonus: 0,        // +1 per purchase, max 4
+    dashModule: false,    // unlock dash permanently
+    speedLevel: 0,        // +10% per level, max 3
+    damageBonus: 0,       // +1 damage per level, max 3
+    throwReduce: 0        // -2 frames per level, max 4
+  }
 };
 
 const player = {
@@ -330,6 +350,7 @@ const player = {
   facing: 1,
   onGround: false,
 
+  baseMaxHp: 6,
   maxHp: 6,
   hp: 6,
   invuln: 0,
@@ -337,12 +358,17 @@ const player = {
   canDash: false,
   dashCooldown: 0,
   speedBoostTimer: 0,
+
   throwCooldown: 0,
+  throwCooldownMax: 18,
+  projectileDamage: 1,
+
   deadTimer: 0,
 };
 
-let platforms = [];      // for drawing
-let solids = [];         // for collision (surface offset applied)
+// Level objects
+let platforms = []; // drawing
+let solids = [];    // collision (surface offset)
 let enemies = [];
 let coins = [];
 let pickups = [];
@@ -355,16 +381,219 @@ let boss = null;
 let bossProjectiles = [];
 let bossWaves = [];
 
-// -------------------- Helpers --------------------
-function setToast(text, frames = 120){
-  state.toast.text = text;
-  state.toast.t = frames;
-}
-function updateToast(){
-  if (state.toast.t > 0) state.toast.t--;
+// -------------------- Pause + Shop logic --------------------
+function setOverlay(el, show){
+  el.classList.toggle("hidden", !show);
+  el.setAttribute("aria-hidden", show ? "false" : "true");
 }
 
-// Collision solids use platform surface offset
+function pauseGame(){
+  if (state.paused) return;
+  state.paused = true;
+  clearKeys();
+  setOverlay(pauseOverlay, true);
+  setOverlay(shopOverlay, false);
+  state.shopOpen = false;
+}
+
+function resumeGame(){
+  if (!state.paused) return;
+  state.paused = false;
+  clearKeys();
+  setOverlay(pauseOverlay, false);
+  setOverlay(shopOverlay, false);
+  state.shopOpen = false;
+}
+
+function togglePause(){
+  if (!state.running) return;
+  if (state.paused) resumeGame();
+  else pauseGame();
+}
+
+function openShop(){
+  if (!state.paused) pauseGame();
+  state.shopOpen = true;
+  setOverlay(pauseOverlay, false);
+  setOverlay(shopOverlay, true);
+  renderShop();
+}
+
+function closeShop(){
+  state.shopOpen = false;
+  setOverlay(shopOverlay, false);
+  setOverlay(pauseOverlay, true);
+  renderShop(); // harmless
+}
+
+resumeBtn.addEventListener("click", resumeGame);
+shopBtn.addEventListener("click", openShop);
+closeShopBtn.addEventListener("click", closeShop);
+
+restartBtn.addEventListener("click", () => {
+  // restart current level, keep upgrades/coins
+  resetToLevel(state.levelIndex);
+  resumeGame();
+});
+
+quitBtn.addEventListener("click", () => {
+  // quit to character select, reset run
+  resumeGame();
+  state.running = false;
+  state.paused = false;
+  state.shopOpen = false;
+  setOverlay(pauseOverlay, false);
+  setOverlay(shopOverlay, false);
+  hudEl.classList.add("hidden");
+  menuEl.classList.remove("hidden");
+
+  // reset run data
+  state.coins = 0;
+  state.levelIndex = 0;
+  state.upgrades = {
+    maxHpBonus: 0,
+    dashModule: false,
+    speedLevel: 0,
+    damageBonus: 0,
+    throwReduce: 0
+  };
+  applyUpgrades(true);
+});
+
+// -------------------- Shop items --------------------
+function shopCatalog(){
+  const u = state.upgrades;
+
+  const maxHpCost = 12 + (u.maxHpBonus * 10);
+  const speedCost = 14 + (u.speedLevel * 10);
+  const dmgCost   = 18 + (u.damageBonus * 12);
+  const cdCost    = 16 + (u.throwReduce * 10);
+
+  return [
+    {
+      id: "heal",
+      name: "REFRESH PACK",
+      desc: "Heal to full HP immediately.",
+      cost: 8,
+      canBuy: () => player.hp < player.maxHp,
+      ownedText: () => `HP: ${player.hp}/${player.maxHp}`,
+      buy: () => { player.hp = player.maxHp; }
+    },
+    {
+      id: "dash",
+      name: "DASH MODULE",
+      desc: "Unlock Dash permanently (Shift).",
+      cost: 25,
+      canBuy: () => !u.dashModule,
+      ownedText: () => u.dashModule ? "Owned" : "Not owned",
+      buy: () => { u.dashModule = true; }
+    },
+    {
+      id: "maxhp",
+      name: "HEART CHIP",
+      desc: "Max HP +1 (up to +4).",
+      cost: maxHpCost,
+      canBuy: () => u.maxHpBonus < 4,
+      ownedText: () => `Level: ${u.maxHpBonus}/4`,
+      buy: () => { u.maxHpBonus += 1; }
+    },
+    {
+      id: "speed",
+      name: "SPEED TUNER",
+      desc: "Permanent speed +10% (up to +30%).",
+      cost: speedCost,
+      canBuy: () => u.speedLevel < 3,
+      ownedText: () => `Level: ${u.speedLevel}/3`,
+      buy: () => { u.speedLevel += 1; }
+    },
+    {
+      id: "damage",
+      name: "PHONE BOOSTER",
+      desc: "Thrown phone damage +1 (up to +3).",
+      cost: dmgCost,
+      canBuy: () => u.damageBonus < 3,
+      ownedText: () => `Level: ${u.damageBonus}/3`,
+      buy: () => { u.damageBonus += 1; }
+    },
+    {
+      id: "cooldown",
+      name: "QUICK-TOSS SPRINGS",
+      desc: "Throw cooldown -2 (up to -8).",
+      cost: cdCost,
+      canBuy: () => u.throwReduce < 4,
+      ownedText: () => `Level: ${u.throwReduce}/4`,
+      buy: () => { u.throwReduce += 1; }
+    }
+  ];
+}
+
+function renderShop(){
+  shopCoinsEl.textContent = String(state.coins);
+  shopListEl.innerHTML = "";
+
+  const items = shopCatalog();
+  items.forEach(item => {
+    const canBuy = item.canBuy();
+    const afford = state.coins >= item.cost;
+    const disabled = !(canBuy && afford);
+
+    const row = document.createElement("div");
+    row.className = "shop-item";
+
+    const left = document.createElement("div");
+    left.innerHTML = `
+      <div class="shop-name">${item.name}</div>
+      <div class="shop-desc">${item.desc}</div>
+      <div class="shop-meta">${item.ownedText()}</div>
+    `;
+
+    const right = document.createElement("div");
+    right.className = "shop-right";
+
+    const price = document.createElement("div");
+    price.className = "price";
+    price.textContent = `Cost: ${item.cost}`;
+
+    const btn = document.createElement("button");
+    btn.className = "btn btn-solid";
+    btn.textContent = disabled ? (canBuy ? "Need Coins" : "Maxed/Owned") : "Buy";
+    btn.disabled = disabled;
+
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      state.coins -= item.cost;
+      item.buy();
+      applyUpgrades(false);
+      renderShop();
+      updateHUD();
+    });
+
+    right.appendChild(price);
+    right.appendChild(btn);
+
+    row.appendChild(left);
+    row.appendChild(right);
+    shopListEl.appendChild(row);
+  });
+}
+
+// Apply upgrades to player stats (call after purchases + on level reset)
+function applyUpgrades(resetHpToFull){
+  const u = state.upgrades;
+
+  player.maxHp = player.baseMaxHp + u.maxHpBonus;
+  if (resetHpToFull) player.hp = player.maxHp;
+  else player.hp = Math.min(player.hp, player.maxHp);
+
+  player.canDash = player.canDash || u.dashModule; // keep pickups too
+
+  const minCooldown = 6;
+  player.throwCooldownMax = Math.max(minCooldown, 18 - (u.throwReduce * 2));
+
+  player.projectileDamage = 1 + u.damageBonus;
+}
+
+// -------------------- Platform collision surface --------------------
 function rebuildSolids(){
   solids = platforms.map(p => {
     const y = p.y + PLATFORM_SURFACE_Y;
@@ -373,14 +602,12 @@ function rebuildSolids(){
   });
 }
 
-// Snap entity to the collision surface
 function snapToSurface(ent){
   const cx = ent.x + ent.w/2;
   let best = null;
   let bestDy = Infinity;
 
-  for (let i=0;i<solids.length;i++){
-    const s = solids[i];
+  for (const s of solids){
     if (cx < s.x || cx > s.x + s.w) continue;
     const targetY = s.y - ent.h;
     const dy = Math.abs(ent.y - targetY);
@@ -395,6 +622,15 @@ function snapToSurface(ent){
     ent.vy = 0;
     ent.onGround = true;
   }
+}
+
+// -------------------- Combat / death --------------------
+function setToast(text, frames = 120){
+  state.toast.text = text;
+  state.toast.t = frames;
+}
+function updateToast(){
+  if (state.toast.t > 0) state.toast.t--;
 }
 
 function damagePlayer(amount, knockDir = 0){
@@ -485,37 +721,33 @@ function resetToLevel(idx){
   platforms = (L.platforms || []).map(p => ({...p}));
   rebuildSolids();
 
-  // player
   player.x = L.spawn.x;
   player.y = L.spawn.y;
   player.vx = 0;
   player.vy = 0;
   player.deadTimer = 0;
   player.invuln = 0;
-  player.hp = player.maxHp;
 
-  // items
+  // Keep run upgrades and apply them at level start
+  applyUpgrades(true);
+
   coins = (L.coins || []).map(c => ({...c, w: 20, h: 20, taken: false}));
   pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
   projectiles = [];
 
-  // exit/checkpoint (place them visually; collisions use their own boxes)
   exitDoor = { x: L.exit.x, y: L.exit.y, w: 44, h: 56, locked: !!L.exitLocked };
   checkpoint = { x: L.checkpoint.x, y: L.checkpoint.y, w: 28, h: 50, active:false };
 
-  // enemies
   enemies = (L.enemies || []).map(e => ({
     ...e,
     w: ENEMY_SZ.w, h: ENEMY_SZ.h, dw: ENEMY_SZ.dw, dh: ENEMY_SZ.dh,
     vx: 0.7 * (Math.random() > 0.5 ? 1 : -1),
     vy: 0,
     maxHp: e.hp,
-    // patrol bounds (hitbox-based)
     left: e.left,
     right: Math.max(e.left + 10, e.right - ENEMY_SZ.w)
   }));
 
-  // boss
   bossProjectiles = [];
   bossWaves = [];
   boss = null;
@@ -543,10 +775,11 @@ function resetToLevel(idx){
     setToast("BOSS APPROACHING", 90);
   }
 
-  // snap everybody to correct platform surface
   snapToSurface(player);
   for (const e of enemies) snapToSurface(e);
   if (boss) snapToSurface(boss);
+
+  updateHUD();
 }
 
 function nextLevel(){
@@ -562,7 +795,8 @@ function updatePlayer(){
   }
   if (player.invuln > 0) player.invuln--;
 
-  const speedMult = player.speedBoostTimer > 0 ? 1.55 : 1.0;
+  const permSpeedMult = 1.0 + (state.upgrades.speedLevel * 0.10);
+  const speedMult = (player.speedBoostTimer > 0 ? 1.55 : 1.0) * permSpeedMult;
   const speed = BASE_SPEED * speedMult;
 
   if (player.dashCooldown > 0) player.dashCooldown--;
@@ -596,10 +830,11 @@ function updatePlayer(){
       h: PHONE_H,
       vx: 9.5 * player.facing,
       vy: -1.5,
-      life: 90
+      life: 90,
+      dmg: player.projectileDamage
     };
     projectiles.push(pr);
-    player.throwCooldown = 18;
+    player.throwCooldown = player.throwCooldownMax;
   }
 
   player.vy = clamp(player.vy + GRAVITY, -50, MAX_FALL);
@@ -672,12 +907,15 @@ function updateProjectiles(){
 
     for (const e of enemies){
       if (pr.life <= 0) break;
-      if (aabb(pr, e)){ e.hp -= 1; pr.life = 0; }
+      if (aabb(pr, e)){
+        e.hp -= pr.dmg;
+        pr.life = 0;
+      }
     }
 
     if (boss && boss.hp > 0 && pr.life > 0){
       if (boss.invuln === 0 && aabb(pr, boss)){
-        boss.hp -= 1;
+        boss.hp -= pr.dmg;
         boss.invuln = 8;
         pr.life = 0;
         if (boss.hp <= 0){
@@ -815,11 +1053,12 @@ function updateBossWaves(){
 function updateHUD(){
   hudCoins.textContent = String(state.coins);
   hudDash.textContent = player.canDash ? (player.dashCooldown === 0 ? "Ready" : "Cooling") : "No";
-  hudSpeed.textContent = player.speedBoostTimer > 0 ? "Boosted" : "Normal";
+  const permSpeedMult = 1.0 + (state.upgrades.speedLevel * 0.10);
+  hudSpeed.textContent = player.speedBoostTimer > 0 ? "Boosted" : (permSpeedMult > 1 ? "Upgraded" : "Normal");
   hudThrow.textContent = player.throwCooldown === 0 ? "Ready" : "Cooling";
 }
 
-// -------------------- 8-bit HP Bars --------------------
+// -------------------- 8-bit HP bars --------------------
 function drawPixelFrame(x, y, w, h){
   ctx.fillStyle = "#000"; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = "#fff"; ctx.fillRect(x+1, y+1, w-2, h-2);
@@ -910,7 +1149,7 @@ function drawToast(){
   ctx.restore();
 }
 
-// -------------------- Rendering --------------------
+// -------------------- Render --------------------
 function drawTiledPlatform(rect){
   const img = images.platform;
   const tileH = rect.h;
@@ -949,7 +1188,6 @@ function draw(){
 
   for (const p of platforms) drawTiledPlatform(p);
 
-  // show the collision surface line (debug)
   if (DEBUG_HITBOX){
     ctx.save();
     ctx.strokeStyle = "#00ffff";
@@ -1025,7 +1263,7 @@ function draw(){
   drawToast();
 }
 
-// -------------------- Character Select --------------------
+// -------------------- Character select --------------------
 function buildCharacterMenu(){
   charGridEl.innerHTML = "";
   ASSETS.chars.forEach((c) => {
@@ -1061,15 +1299,32 @@ function buildCharacterMenu(){
 // -------------------- Start / Loop --------------------
 function startGame(){
   state.running = true;
+  state.paused = false;
+  state.shopOpen = false;
+  setOverlay(pauseOverlay, false);
+  setOverlay(shopOverlay, false);
+
   menuEl.classList.add("hidden");
   hudEl.classList.remove("hidden");
+
   state.coins = 0;
 
+  // reset upgrades for a new run
+  state.upgrades = {
+    maxHpBonus: 0,
+    dashModule: false,
+    speedLevel: 0,
+    damageBonus: 0,
+    throwReduce: 0
+  };
+
+  // reset player “found” abilities
   player.canDash = false;
   player.dashCooldown = 0;
   player.speedBoostTimer = 0;
   player.throwCooldown = 0;
 
+  applyUpgrades(true);
   resetToLevel(START_LEVEL_INDEX);
 }
 startBtn.addEventListener("click", startGame);
@@ -1079,14 +1334,19 @@ function loop(now){
   last = now;
 
   if (state.running){
-    updatePlayer();
-    updateEnemies();
-    updateBoss();
-    updateProjectiles();
-    updateBossProjectiles();
-    updateBossWaves();
-    updateHUD();
-    updateToast();
+    if (!state.paused){
+      updatePlayer();
+      updateEnemies();
+      updateBoss();
+      updateProjectiles();
+      updateBossProjectiles();
+      updateBossWaves();
+      updateHUD();
+      updateToast();
+    } else {
+      // Keep shop coin display fresh while paused
+      shopCoinsEl.textContent = String(state.coins);
+    }
     draw();
   } else {
     ctx.clearRect(0,0,canvas.width,canvas.height);
