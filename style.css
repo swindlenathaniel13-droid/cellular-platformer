@@ -1,6 +1,5 @@
 :root{
   --bg:#0b1020;
-  --card:#111a33;
   --text:#e9eefc;
   --muted:#aab4d6;
   --accent:#7aa7ff;
@@ -15,11 +14,7 @@ body{
   color:var(--text);
 }
 
-.wrap{
-  width: min(98vw, 1600px);
-  margin: 0 auto;
-  padding: 12px;
-}
+.wrap{ width: min(98vw, 1600px); margin:0 auto; padding:12px; }
 
 .topbar{
   display:flex; gap:12px; align-items:baseline; justify-content:space-between;
@@ -33,11 +28,7 @@ body{
 .hint{color:var(--muted);font-size:13px}
 
 .main{ margin-top:14px; display:grid; gap:12px; }
-
-.stage{
-  position:relative;
-  width:100%;
-}
+.stage{ position:relative; width:100%; }
 
 canvas{
   width:100%;
@@ -81,10 +72,7 @@ canvas{
   border-color: rgba(122,167,255,.9);
   box-shadow: 0 0 0 3px rgba(122,167,255,.18);
 }
-.char-card img{
-  width:48px;height:48px;
-  image-rendering: pixelated;
-}
+.char-card img{ width:48px;height:48px; image-rendering: pixelated; }
 .char-name{font-weight:700}
 .small{color:var(--muted);margin:8px 0 0 0;font-size:13px}
 
@@ -99,16 +87,8 @@ canvas{
   cursor:pointer;
 }
 .btn:disabled{opacity:.45; cursor:not-allowed}
-
-.btn-solid{
-  background: rgba(122,167,255,.22);
-  border-color: rgba(122,167,255,.8);
-}
-
-.btn-danger{
-  background: rgba(255,107,107,.14);
-  border-color: rgba(255,107,107,.7);
-}
+.btn-solid{ background: rgba(122,167,255,.22); border-color: rgba(122,167,255,.8); }
+.btn-danger{ background: rgba(255,107,107,.14); border-color: rgba(255,107,107,.7); }
 
 /* HUD */
 .hud{
@@ -131,16 +111,10 @@ canvas{
   font-size:13px;
 }
 
-.footer{
-  color:var(--muted);
-  font-size:12px;
-  text-align:center;
-  margin-top:8px;
-}
-
+.footer{ color:var(--muted); font-size:12px; text-align:center; margin-top:8px; }
 .hidden{display:none}
 
-/* Overlays (Pause + Shop) */
+/* Overlays */
 .overlay{
   position:absolute;
   inset:0;
@@ -167,28 +141,12 @@ canvas{
   letter-spacing: 1px;
   font-size: 22px;
 }
+.overlay-sub{ margin-top:8px; color: var(--muted); font-size: 13px; }
 
-.overlay-sub{
-  margin-top:6px;
-  color: var(--muted);
-  font-size: 13px;
-}
+.overlay-buttons{ margin-top:14px; display:grid; gap:10px; }
+.overlay-help{ margin-top:14px; }
 
-.overlay-buttons{
-  margin-top:14px;
-  display:grid;
-  gap:10px;
-}
-
-.overlay-help{
-  margin-top:14px;
-}
-
-/* Shop */
-.shop-card{
-  width: min(760px, 98%);
-}
-
+.shop-card{ width: min(760px, 98%); }
 .shop-topline{
   margin-top:12px;
   display:flex;
@@ -196,19 +154,12 @@ canvas{
   justify-content:space-between;
   gap:12px;
 }
-
 .shop-coins{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-weight: 900;
   letter-spacing: .5px;
 }
-
-.shop-list{
-  margin-top:12px;
-  display:grid;
-  gap:10px;
-}
-
+.shop-list{ margin-top:12px; display:grid; gap:10px; }
 .shop-item{
   display:grid;
   grid-template-columns: 1fr auto;
@@ -219,32 +170,64 @@ canvas{
   border:1px solid rgba(255,255,255,.16);
   background: rgba(0,0,0,.18);
 }
-
 .shop-name{
   font-weight:900;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
-
-.shop-desc{
-  margin-top:4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.shop-meta{
-  margin-top:6px;
-  font-size: 12px;
-  color: rgba(233,238,252,.9);
-}
-
-.shop-right{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  align-items:flex-end;
-}
-
+.shop-desc{ margin-top:4px; color: var(--muted); font-size: 13px; }
+.shop-meta{ margin-top:6px; font-size: 12px; color: rgba(233,238,252,.9); }
+.shop-right{ display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
 .price{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-weight: 900;
+}
+
+/* Tutorial overlay (pixel-ish card) */
+.tutorial{
+  position:absolute;
+  top:12px;
+  left:12px;
+  width: min(360px, 92%);
+  padding:12px;
+  border-radius:16px;
+  background: rgba(0,0,0,.45);
+  border: 2px solid rgba(255,255,255,.75);
+  backdrop-filter: blur(2px);
+}
+.tutorial-title{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+  letter-spacing: .8px;
+  font-size: 16px;
+}
+.tutorial-sub{ margin-top:6px; color: var(--muted); font-size: 13px; }
+.tutorial-list{ margin-top:10px; display:grid; gap:6px; }
+.tut-item{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  padding:6px 8px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.16);
+  background: rgba(17,26,51,.55);
+}
+.tut-item.done{
+  border-color: rgba(122,167,255,.85);
+  box-shadow: 0 0 0 2px rgba(122,167,255,.18) inset;
+}
+.tutorial-tip{ margin-top:10px; color: var(--muted); font-size: 12px; }
+
+/* Loading bar */
+.loading-card{ width: min(520px, 95%); }
+.loading-bar{
+  margin-top:14px;
+  height: 18px;
+  border-radius: 12px;
+  border: 2px solid rgba(255,255,255,.75);
+  background: rgba(0,0,0,.35);
+  overflow:hidden;
+}
+.loading-fill{
+  height:100%;
+  width:0%;
+  background: rgba(255,255,255,.85);
 }
