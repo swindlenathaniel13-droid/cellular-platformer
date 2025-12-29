@@ -1,1 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixel Platformer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="title">Pixel Platformer</div>
+      <div class="hint">
+        Move: ← → / A D · Jump: Space · Throw: F · Dash: Shift (after pickup)
+      </div>
+    </header>
+
+    <main class="main">
+      <canvas id="game" width="960" height="540" aria-label="Platformer game canvas"></canvas>
+
+      <section id="menu" class="menu">
+        <h2>Pick your character</h2>
+        <div class="char-grid" id="charGrid"></div>
+        <button id="startBtn" class="btn" disabled>Start</button>
+        <p class="small">
+          Tip: Enemies patrol platforms. Touching them respawns you at the last checkpoint.
+          Reach the exit door to advance.
+        </p>
+      </section>
+
+      <section id="hud" class="hud hidden">
+        <div>Level: <span id="hudLevel">1</span></div>
+        <div>Coins: <span id="hudCoins">0</span></div>
+        <div>Dash: <span id="hudDash">No</span></div>
+        <div>Speed: <span id="hudSpeed">Normal</span></div>
+        <div>Throw: <span id="hudThrow">Ready</span></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Made with HTML Canvas · Hosted on GitHub Pages
+    </footer>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
 
