@@ -112,7 +112,6 @@ canvas{
 }
 
 .footer{ color:var(--muted); font-size:12px; text-align:center; margin-top:8px; }
-.hidden{display:none}
 
 /* Overlays */
 .overlay{
@@ -298,3 +297,6 @@ canvas{
   width:0%;
   background: rgba(255,255,255,.85);
 }
+
+/* ✅ IMPORTANT: keep this LAST so it overrides overlay/menu/hud display rules */
+.hidden{ display:none !important; }
