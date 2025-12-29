@@ -4,6 +4,7 @@
   --text:#e9eefc;
   --muted:#aab4d6;
   --accent:#7aa7ff;
+  --danger:#ff6b6b;
 }
 
 *{box-sizing:border-box}
@@ -31,12 +32,11 @@ body{
 .title{font-weight:800;letter-spacing:.5px}
 .hint{color:var(--muted);font-size:13px}
 
-.main{
-  margin-top:14px;
+.main{ margin-top:14px; display:grid; gap:12px; }
+
+.stage{
   position:relative;
-  display:grid;
-  grid-template-columns: 1fr;
-  gap:12px;
+  width:100%;
 }
 
 canvas{
@@ -50,7 +50,9 @@ canvas{
   image-rendering: pixelated;
 }
 
+/* Character Select */
 .menu{
+  margin-top:12px;
   background:rgba(17,26,51,.65);
   border:1px solid rgba(122,167,255,.25);
   border-radius:16px;
@@ -86,21 +88,33 @@ canvas{
 .char-name{font-weight:700}
 .small{color:var(--muted);margin:8px 0 0 0;font-size:13px}
 
+/* Buttons */
 .btn{
   padding:10px 14px;
   border-radius:12px;
   border:1px solid rgba(122,167,255,.45);
-  background: rgba(122,167,255,.15);
+  background: rgba(122,167,255,.12);
   color:var(--text);
-  font-weight:700;
+  font-weight:800;
   cursor:pointer;
 }
-.btn:disabled{
-  opacity:.45;
-  cursor:not-allowed;
+.btn:disabled{opacity:.45; cursor:not-allowed}
+
+.btn-solid{
+  background: rgba(122,167,255,.22);
+  border-color: rgba(122,167,255,.8);
 }
 
+.btn-danger{
+  background: rgba(255,107,107,.14);
+  border-color: rgba(255,107,107,.7);
+}
+
+/* HUD */
 .hud{
+  position:absolute;
+  left:12px;
+  bottom:12px;
   display:flex;
   flex-wrap:wrap;
   gap:10px;
@@ -116,11 +130,121 @@ canvas{
   background: rgba(0,0,0,.18);
   font-size:13px;
 }
-.hidden{display:none}
 
 .footer{
-  margin-top:14px;
   color:var(--muted);
   font-size:12px;
   text-align:center;
+  margin-top:8px;
+}
+
+.hidden{display:none}
+
+/* Overlays (Pause + Shop) */
+.overlay{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+}
+
+.overlay-card{
+  width: min(560px, 95%);
+  background: rgba(17,26,51,.92);
+  border: 2px solid rgba(255,255,255,.75);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.45);
+}
+
+.overlay-title{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-size: 22px;
+}
+
+.overlay-sub{
+  margin-top:6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.overlay-buttons{
+  margin-top:14px;
+  display:grid;
+  gap:10px;
+}
+
+.overlay-help{
+  margin-top:14px;
+}
+
+/* Shop */
+.shop-card{
+  width: min(760px, 98%);
+}
+
+.shop-topline{
+  margin-top:12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.shop-coins{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+  letter-spacing: .5px;
+}
+
+.shop-list{
+  margin-top:12px;
+  display:grid;
+  gap:10px;
+}
+
+.shop-item{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.16);
+  background: rgba(0,0,0,.18);
+}
+
+.shop-name{
+  font-weight:900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.shop-desc{
+  margin-top:4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.shop-meta{
+  margin-top:6px;
+  font-size: 12px;
+  color: rgba(233,238,252,.9);
+}
+
+.shop-right{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  align-items:flex-end;
+}
+
+.price{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
 }
