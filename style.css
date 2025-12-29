@@ -142,11 +142,30 @@ canvas{
   font-size: 22px;
 }
 .overlay-sub{ margin-top:8px; color: var(--muted); font-size: 13px; }
-
 .overlay-buttons{ margin-top:14px; display:grid; gap:10px; }
 .overlay-help{ margin-top:14px; }
 
+/* Stage clear */
+.stage-card{ width: min(520px, 95%); }
+
+/* Shop */
 .shop-card{ width: min(760px, 98%); }
+
+.shop-head{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.shopkeeper{
+  width:56px;
+  height:56px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.2);
+  background: rgba(0,0,0,.25);
+  image-rendering: pixelated;
+}
+
 .shop-topline{
   margin-top:12px;
   display:flex;
@@ -182,7 +201,7 @@ canvas{
   font-weight: 900;
 }
 
-/* Tutorial overlay (pixel-ish card) */
+/* Tutorial overlay */
 .tutorial{
   position:absolute;
   top:12px;
