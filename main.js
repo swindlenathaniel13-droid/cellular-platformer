@@ -1,8 +1,9 @@
 /* main.js
-   ✅ Stage 1 Tutorial Level + instruction overlay
-   ✅ Bigger Exit Door (auto aligned to platform surface)
-   ✅ 5–10 second loading bar when entering exit door
-   ✅ Keeps Pause + Shop from previous version
+   ✅ Edgar is NOT playable (only shopkeeper)
+   ✅ Shop ONLY accessible after stage clear, once per stage
+   ✅ Stage 1 tutorial overlay
+   ✅ Bigger exit door + 5–10s loading between stages
+   ✅ Boss + enemy systems included
 */
 
 const ASSETS = {
@@ -25,7 +26,7 @@ const ASSETS = {
 };
 
 // -------------------- TUNING --------------------
-const PLATFORM_SURFACE_Y = 14;   // adjust if sprites float / sink
+const PLATFORM_SURFACE_Y = 14;
 const SPRITE_SCALE = 2.0;
 const HITBOX_SCALE = 0.72;
 const FOOT_SINK = 2;
@@ -36,11 +37,11 @@ const START_LEVEL_INDEX = 0;
 
 const DEBUG_HITBOX = false;
 
-// Exit door size (bigger)
+// Exit door bigger
 const EXIT_W = 78;
 const EXIT_H = 110;
 
-// Loading duration range (5–10 seconds)
+// Loading duration range
 const LOAD_MIN_MS = 5000;
 const LOAD_MAX_MS = 10000;
 // ----------------------------------------------
@@ -68,18 +69,27 @@ const tutJumpEl  = document.getElementById("tutJump");
 const tutThrowEl = document.getElementById("tutThrow");
 const tutDoorEl  = document.getElementById("tutDoor");
 
+// Stage clear UI
+const stageOverlay = document.getElementById("stageOverlay");
+const stageCoinsEl = document.getElementById("stageCoins");
+const stageShopStatusEl = document.getElementById("stageShopStatus");
+const stageShopBtn = document.getElementById("stageShopBtn");
+const stageNextBtn = document.getElementById("stageNextBtn");
+const stageReplayBtn = document.getElementById("stageReplayBtn");
+const stageQuitBtn = document.getElementById("stageQuitBtn");
+
 // Loading UI
 const loadingOverlay = document.getElementById("loadingOverlay");
 const loadingFill = document.getElementById("loadingFill");
 const loadingText = document.getElementById("loadingText");
 
-// Pause + Shop UI
+// Pause UI
 const pauseOverlay = document.getElementById("pauseOverlay");
 const resumeBtn = document.getElementById("resumeBtn");
-const shopBtn = document.getElementById("shopBtn");
 const restartBtn = document.getElementById("restartBtn");
 const quitBtn = document.getElementById("quitBtn");
 
+// Shop UI
 const shopOverlay = document.getElementById("shopOverlay");
 const shopCoinsEl = document.getElementById("shopCoins");
 const closeShopBtn = document.getElementById("closeShopBtn");
@@ -137,8 +147,7 @@ function generateProceduralLevel(levelIndex){
     platforms.push({ x, y, w, h });
   }
 
-  const spawn = { x: 70, y: 380 };
-
+  const spawn = { x: 70, y: 0 };
   const last = platforms[platforms.length - 1];
   const exit = { x: Math.floor(last.x + last.w - 120), y: 0 };
 
@@ -210,17 +219,17 @@ const TUTORIAL_LEVEL = {
   exitLocked: false,
   checkpoint: { x: 420, y: 0 },
   platforms: [
-    { x: 0,   y: 460, w: 960, h: 80 },   // ground
-    { x: 220, y: 410, w: 240, h: 28 },   // easy hop
-    { x: 520, y: 380, w: 220, h: 28 },   // slightly higher
+    { x: 0,   y: 460, w: 960, h: 80 },
+    { x: 220, y: 410, w: 240, h: 28 },
+    { x: 520, y: 380, w: 220, h: 28 },
   ],
-  enemies: [], // no enemies in tutorial
+  enemies: [],
   coins: [
     { x: 250, y: 0 }, { x: 290, y: 0 }, { x: 330, y: 0 },
     { x: 560, y: 0 }, { x: 600, y: 0 }
   ],
   pickups: [
-    { kind:"dash", x: 540, y: 0 } // optional: introduces dash early
+    { kind:"dash", x: 540, y: 0 }
   ],
   boss: null
 };
@@ -258,11 +267,7 @@ const BOSS_LEVEL_TEMPLATE = {
 
 function getLevel(idx){
   if (idx === 0) return TUTORIAL_LEVEL;
-
   const isBoss = (idx % BOSS_EVERY) === (BOSS_EVERY - 1);
-  if (!USE_PROCEDURAL_LEVELS){
-    return isBoss ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
-  }
   return isBoss ? BOSS_LEVEL_TEMPLATE : generateProceduralLevel(idx);
 }
 
@@ -305,7 +310,8 @@ function clearKeys(){
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
     if (!state.running) return;
-    if (state.transition.active) return; // disable pause during loading
+    if (state.transition.active) return;
+    if (state.stageClear.active) return; // stage clear screen owns the UI
     togglePause();
     return;
   }
@@ -376,6 +382,12 @@ const state = {
     reachedDoor: false,
   },
 
+  stageClear: {
+    active: false,
+    shopUsed: false,
+    nextIndex: 0
+  },
+
   transition: {
     active: false,
     elapsedMs: 0,
@@ -425,7 +437,7 @@ let projectiles = [];
 let exitDoor = null;
 let checkpoint = null;
 
-// Boss (kept for later stages)
+// Boss
 let boss = null;
 let bossProjectiles = [];
 let bossWaves = [];
@@ -441,8 +453,6 @@ function pauseGame(){
   state.paused = true;
   clearKeys();
   setOverlay(pauseOverlay, true);
-  setOverlay(shopOverlay, false);
-  state.shopOpen = false;
 }
 
 function resumeGame(){
@@ -450,8 +460,6 @@ function resumeGame(){
   state.paused = false;
   clearKeys();
   setOverlay(pauseOverlay, false);
-  setOverlay(shopOverlay, false);
-  state.shopOpen = false;
 }
 
 function togglePause(){
@@ -460,39 +468,32 @@ function togglePause(){
   else pauseGame();
 }
 
-function openShop(){
-  if (!state.paused) pauseGame();
-  state.shopOpen = true;
-  setOverlay(pauseOverlay, false);
-  setOverlay(shopOverlay, true);
-  renderShop();
-}
-
-function closeShop(){
-  state.shopOpen = false;
-  setOverlay(shopOverlay, false);
-  setOverlay(pauseOverlay, true);
-  renderShop();
-}
-
 resumeBtn.addEventListener("click", resumeGame);
-shopBtn.addEventListener("click", openShop);
-closeShopBtn.addEventListener("click", closeShop);
 
 restartBtn.addEventListener("click", () => {
   resetToLevel(state.levelIndex);
   resumeGame();
 });
 
-quitBtn.addEventListener("click", () => {
+quitBtn.addEventListener("click", () => quitToMenu());
+stageQuitBtn.addEventListener("click", () => quitToMenu());
+
+function quitToMenu(){
   resumeGame();
   state.running = false;
   state.paused = false;
   state.shopOpen = false;
+
+  state.stageClear.active = false;
+  setOverlay(stageOverlay, false);
+
+  state.transition.active = false;
+  setOverlay(loadingOverlay, false);
+
+  stopTutorial();
+
   setOverlay(pauseOverlay, false);
   setOverlay(shopOverlay, false);
-  setOverlay(loadingOverlay, false);
-  setOverlay(tutorialOverlay, false);
 
   hudEl.classList.add("hidden");
   menuEl.classList.remove("hidden");
@@ -502,9 +503,9 @@ quitBtn.addEventListener("click", () => {
 
   state.upgrades = { maxHpBonus: 0, dashModule: false, speedLevel: 0, damageBonus: 0, throwReduce: 0 };
   applyUpgrades(true);
-});
+}
 
-// -------------------- Shop --------------------
+// -------------------- Shop (ONLY from stage clear) --------------------
 function shopCatalog(){
   const u = state.upgrades;
 
@@ -585,6 +586,7 @@ function renderShop(){
       applyUpgrades(false);
       renderShop();
       updateHUD();
+      updateStageClearUI();
     });
 
     right.appendChild(price);
@@ -610,6 +612,105 @@ function applyUpgrades(resetHpToFull){
   player.projectileDamage = 1 + u.damageBonus;
 }
 
+function openShopFromStageClear(){
+  if (!state.stageClear.active) return;
+  if (state.stageClear.shopUsed) return;
+
+  state.stageClear.shopUsed = true;
+  state.shopOpen = true;
+
+  setOverlay(stageOverlay, false);
+  setOverlay(shopOverlay, true);
+  renderShop();
+  updateStageClearUI();
+}
+
+function closeShopToStageClear(){
+  state.shopOpen = false;
+  setOverlay(shopOverlay, false);
+
+  // return to stage clear screen
+  setOverlay(stageOverlay, true);
+  updateStageClearUI();
+}
+
+closeShopBtn.addEventListener("click", closeShopToStageClear);
+
+// -------------------- Stage Clear --------------------
+function updateStageClearUI(){
+  stageCoinsEl.textContent = String(state.coins);
+
+  const available = !state.stageClear.shopUsed;
+  stageShopStatusEl.textContent = available ? "Available" : "Used";
+  stageShopBtn.disabled = !available;
+}
+
+function openStageClear(nextIndex){
+  // freeze gameplay here
+  clearKeys();
+  state.paused = false;
+  setOverlay(pauseOverlay, false);
+
+  state.stageClear.active = true;
+  state.stageClear.nextIndex = nextIndex;
+  state.stageClear.shopUsed = false;
+
+  setOverlay(stageOverlay, true);
+  updateStageClearUI();
+}
+
+function closeStageClear(){
+  state.stageClear.active = false;
+  setOverlay(stageOverlay, false);
+}
+
+stageShopBtn.addEventListener("click", openShopFromStageClear);
+
+stageNextBtn.addEventListener("click", () => {
+  if (!state.stageClear.active) return;
+  const next = state.stageClear.nextIndex;
+  closeStageClear();
+  beginTransition(next);
+});
+
+stageReplayBtn.addEventListener("click", () => {
+  closeStageClear();
+  resetToLevel(state.levelIndex);
+});
+
+stageQuitBtn.addEventListener("click", quitToMenu);
+
+// -------------------- Loading transition --------------------
+function beginTransition(nextIndex){
+  if (state.transition.active) return;
+
+  clearKeys();
+
+  state.transition.active = true;
+  state.transition.elapsedMs = 0;
+  state.transition.durationMs = LOAD_MIN_MS + Math.floor(Math.random() * (LOAD_MAX_MS - LOAD_MIN_MS + 1));
+  state.transition.nextIndex = nextIndex;
+
+  loadingFill.style.width = "0%";
+  loadingText.textContent = "Generating the next level...";
+  setOverlay(loadingOverlay, true);
+}
+
+function updateTransition(dtMs){
+  state.transition.elapsedMs += dtMs;
+  const t = clamp(state.transition.elapsedMs / state.transition.durationMs, 0, 1);
+  loadingFill.style.width = `${Math.floor(t * 100)}%`;
+
+  const remaining = Math.max(0, Math.ceil((state.transition.durationMs - state.transition.elapsedMs) / 1000));
+  loadingText.textContent = remaining > 0 ? `Loading... ${remaining}s` : "Starting!";
+
+  if (t >= 1){
+    setOverlay(loadingOverlay, false);
+    state.transition.active = false;
+    resetToLevel(state.transition.nextIndex);
+  }
+}
+
 // -------------------- Collision solids (platform surface offset) --------------------
 function rebuildSolids(){
   solids = platforms.map(p => {
@@ -623,10 +724,10 @@ function surfaceYAt(xMid){
   let best = null;
   for (const s of solids){
     if (xMid >= s.x && xMid <= s.x + s.w){
-      if (!best || s.y < best.y) best = s; // highest platform
+      if (!best || s.y < best.y) best = s;
     }
   }
-  return best ? best.y : 460; // fallback
+  return best ? best.y : 460;
 }
 
 function placeOnSurface(x, w, h){
@@ -657,7 +758,7 @@ function snapToSurface(ent){
   }
 }
 
-// -------------------- Combat / toast --------------------
+// -------------------- Toast / death --------------------
 function setToast(text, frames = 120){
   state.toast.text = text;
   state.toast.t = frames;
@@ -709,43 +810,6 @@ function unlockExit(){
   setToast("EXIT UNLOCKED!", 120);
 }
 
-// -------------------- Loading transition --------------------
-function beginTransition(nextIndex){
-  if (state.transition.active) return;
-
-  // close pause/shop if somehow open
-  state.paused = false;
-  state.shopOpen = false;
-  setOverlay(pauseOverlay, false);
-  setOverlay(shopOverlay, false);
-
-  clearKeys();
-
-  state.transition.active = true;
-  state.transition.elapsedMs = 0;
-  state.transition.durationMs = LOAD_MIN_MS + Math.floor(Math.random() * (LOAD_MAX_MS - LOAD_MIN_MS + 1));
-  state.transition.nextIndex = nextIndex;
-
-  loadingFill.style.width = "0%";
-  loadingText.textContent = "Generating the next level...";
-  setOverlay(loadingOverlay, true);
-}
-
-function updateTransition(dtMs){
-  state.transition.elapsedMs += dtMs;
-  const t = clamp(state.transition.elapsedMs / state.transition.durationMs, 0, 1);
-  loadingFill.style.width = `${Math.floor(t * 100)}%`;
-
-  const remaining = Math.max(0, Math.ceil((state.transition.durationMs - state.transition.elapsedMs) / 1000));
-  loadingText.textContent = remaining > 0 ? `Loading... ${remaining}s` : "Starting!";
-
-  if (t >= 1){
-    setOverlay(loadingOverlay, false);
-    state.transition.active = false;
-    resetToLevel(state.transition.nextIndex);
-  }
-}
-
 // -------------------- Physics --------------------
 const GRAVITY = 0.55;
 const JUMP_V = -11.5;
@@ -780,7 +844,7 @@ function moveAndCollide(ent, solidList){
   }
 }
 
-// -------------------- Tutorial logic --------------------
+// -------------------- Tutorial --------------------
 function setTutDone(el, done){
   el.classList.toggle("done", !!done);
   el.textContent = el.textContent.replace(/^\[.\]/, done ? "[✓]" : "[ ]");
@@ -792,7 +856,6 @@ function startTutorial(){
   state.tutorial.threw = false;
   state.tutorial.reachedDoor = false;
 
-  // reset the text to [ ] in case a prior run changed it
   tutMoveEl.textContent  = "[ ] Move left/right (A/D or ←/→)";
   tutJumpEl.textContent  = "[ ] Jump (Space)";
   tutThrowEl.textContent = "[ ] Throw phone (F)";
@@ -811,16 +874,10 @@ function stopTutorial(){
 }
 function updateTutorial(){
   if (!state.tutorial.active) return;
-
   setTutDone(tutMoveEl, state.tutorial.moved);
   setTutDone(tutJumpEl, state.tutorial.jumped);
   setTutDone(tutThrowEl, state.tutorial.threw);
   setTutDone(tutDoorEl, state.tutorial.reachedDoor);
-
-  // Auto-hide once complete (after they reach door)
-  if (state.tutorial.moved && state.tutorial.jumped && state.tutorial.threw && state.tutorial.reachedDoor){
-    // keep it visible until transition begins; no spam
-  }
 }
 
 // -------------------- Level Reset --------------------
@@ -831,14 +888,21 @@ function resetToLevel(idx){
   hudLevel.textContent = String(idx + 1);
   state.respawn = { x: L.spawn.x, y: 0 };
 
+  // close any overlays
+  state.paused = false;
+  setOverlay(pauseOverlay, false);
+  setOverlay(shopOverlay, false);
+  state.shopOpen = false;
+
+  state.stageClear.active = false;
+  setOverlay(stageOverlay, false);
+
   platforms = (L.platforms || []).map(p => ({...p}));
   rebuildSolids();
 
-  // tutorial stage toggles
   if (idx === 0) startTutorial();
   else stopTutorial();
 
-  // place spawn/checkpoint/exit on platform surface
   const spawnPlaced = placeOnSurface(L.spawn.x, player.w, player.h);
   player.x = spawnPlaced.x;
   player.y = spawnPlaced.y;
@@ -849,14 +913,12 @@ function resetToLevel(idx){
 
   applyUpgrades(true);
 
-  // coins
   coins = (L.coins || []).map(c => ({...c, w: 20, h: 20, taken: false}));
   coins.forEach(c => {
     const placed = placeOnSurface(c.x, c.w, c.h + 18);
-    c.y = placed.y - 18; // float slightly above surface
+    c.y = placed.y - 18;
   });
 
-  // pickups
   pickups = (L.pickups || []).map(p => ({...p, w: 26, h: 26, taken: false}));
   pickups.forEach(p => {
     const placed = placeOnSurface(p.x, p.w, p.h + 14);
@@ -865,7 +927,6 @@ function resetToLevel(idx){
 
   projectiles = [];
 
-  // checkpoint
   checkpoint = { x: L.checkpoint.x, y: 0, w: 28, h: 50, active:false };
   {
     const placed = placeOnSurface(checkpoint.x, checkpoint.w, checkpoint.h);
@@ -873,7 +934,6 @@ function resetToLevel(idx){
     checkpoint.y = placed.y;
   }
 
-  // exit (bigger)
   exitDoor = { x: L.exit.x, y: 0, w: EXIT_W, h: EXIT_H, locked: !!L.exitLocked };
   {
     const placed = placeOnSurface(exitDoor.x, exitDoor.w, exitDoor.h);
@@ -881,7 +941,6 @@ function resetToLevel(idx){
     exitDoor.y = placed.y;
   }
 
-  // enemies
   enemies = (L.enemies || []).map(e => ({
     ...e,
     w: ENEMY_SZ.w, h: ENEMY_SZ.h, dw: ENEMY_SZ.dw, dh: ENEMY_SZ.dh,
@@ -896,10 +955,10 @@ function resetToLevel(idx){
     e.y = placed.y;
   });
 
-  // boss (kept but not used in tutorial)
   bossProjectiles = [];
   bossWaves = [];
   boss = null;
+
   if (L.boss){
     boss = {
       type: L.boss.type,
@@ -925,14 +984,132 @@ function resetToLevel(idx){
   }
 
   snapToSurface(player);
-
-  // tutorial spawn offsets
   state.respawn = { x: player.x, y: player.y };
 
   updateHUD();
 }
 
-// -------------------- Player Update --------------------
+// -------------------- Boss Logic --------------------
+function spawnBossBullet(x, y, vx, vy){
+  bossProjectiles.push({ x, y, w: 14, h: 14, vx, vy, life: 150 });
+}
+function spawnShockwave(){
+  const floorY = boss.y + boss.h;
+  const y = floorY - 18;
+  bossWaves.push({ x: boss.x + boss.w*0.45, y, w: 22, h: 18, vx: -7.5, life: 90 });
+  bossWaves.push({ x: boss.x + boss.w*0.55, y, w: 22, h: 18, vx:  7.5, life: 90 });
+}
+function bossChooseNext(){
+  const r = Math.random();
+  if (r < 0.40){ boss.mode = "shoot"; boss.t = 85; }
+  else if (r < 0.72){ boss.mode = "slam"; boss.t = 70; boss.didJump = false; }
+  else { boss.mode = "chargeWindup"; boss.t = 28; boss.bounces = 1; }
+}
+function updateBoss(){
+  if (!boss || boss.hp <= 0) return;
+  if (player.deadTimer > 0) return;
+
+  boss.wasOnGround = boss.onGround;
+  if (boss.invuln > 0) boss.invuln--;
+
+  const bossCx = boss.x + boss.w/2;
+  const playerCx = player.x + player.w/2;
+  boss.face = playerCx < bossCx ? -1 : 1;
+
+  boss.vy = clamp(boss.vy + GRAVITY, -50, MAX_FALL);
+
+  if (boss.mode === "intro"){
+    boss.vx *= 0.85;
+    boss.t--;
+    if (boss.t <= 0){ boss.mode = "idle"; boss.t = 55; }
+  } else if (boss.mode === "idle"){
+    const desired = boss.face * 1.2;
+    boss.vx = boss.vx * 0.85 + desired * 0.15;
+    boss.t--;
+    if (boss.t <= 0) bossChooseNext();
+  } else if (boss.mode === "shoot"){
+    boss.vx *= 0.80;
+    if (boss.t === 76 || boss.t === 56 || boss.t === 36){
+      const dir = boss.face;
+      spawnBossBullet(boss.x + boss.w/2, boss.y + 34, 6.2*dir, -0.4);
+      spawnBossBullet(boss.x + boss.w/2, boss.y + 38, 6.0*dir,  0.0);
+      spawnBossBullet(boss.x + boss.w/2, boss.y + 42, 5.8*dir,  0.4);
+    }
+    boss.t--;
+    if (boss.t <= 0){ boss.mode = "idle"; boss.t = 55; }
+  } else if (boss.mode === "slam"){
+    boss.vx *= 0.85;
+    if (!boss.didJump && boss.t === 40 && boss.onGround){
+      boss.vy = -14.5;
+      boss.didJump = true;
+    }
+    if (boss.didJump && !boss.wasOnGround && boss.onGround){
+      spawnShockwave();
+      boss.mode = "idle";
+      boss.t = 70;
+      setToast("STOMP!", 45);
+    } else {
+      boss.t--;
+      if (boss.t <= 0){ boss.mode = "idle"; boss.t = 55; }
+    }
+  } else if (boss.mode === "chargeWindup"){
+    boss.vx *= 0.70;
+    boss.t--;
+    if (boss.t <= 0){
+      boss.mode = "charge";
+      boss.t = 60;
+      boss.vx = 9.2 * boss.face;
+    }
+  } else if (boss.mode === "charge"){
+    if (boss.x < boss.left){
+      boss.x = boss.left;
+      if (boss.bounces > 0){ boss.vx = Math.abs(boss.vx); boss.bounces--; }
+      else boss.vx = 0;
+    }
+    if (boss.x + boss.w > boss.right){
+      boss.x = boss.right - boss.w;
+      if (boss.bounces > 0){ boss.vx = -Math.abs(boss.vx); boss.bounces--; }
+      else boss.vx = 0;
+    }
+    boss.t--;
+    if (boss.t <= 0){ boss.mode = "idle"; boss.t = 65; boss.vx = 0; }
+  }
+
+  const ent = { x: boss.x, y: boss.y, w: boss.w, h: boss.h, vx: boss.vx, vy: boss.vy, onGround:false };
+  moveAndCollide(ent, solids);
+  boss.x = ent.x; boss.y = ent.y; boss.vx = ent.vx; boss.vy = ent.vy; boss.onGround = ent.onGround;
+
+  if (aabb(player, boss)){
+    const knock = (player.x + player.w/2) < (boss.x + boss.w/2) ? -1 : 1;
+    damagePlayer(1, knock);
+  }
+}
+function updateBossProjectiles(){
+  for (const pr of bossProjectiles){
+    pr.x += pr.vx; pr.y += pr.vy; pr.vy += 0.05; pr.life--;
+    for (const s of solids){ if (aabb(pr, s)){ pr.life = 0; break; } }
+    if (pr.life > 0 && player.deadTimer === 0 && aabb(player, pr)){
+      const knock = pr.vx < 0 ? -1 : 1;
+      damagePlayer(1, knock);
+      pr.life = 0;
+    }
+  }
+  bossProjectiles = bossProjectiles.filter(p => p.life > 0);
+}
+function updateBossWaves(){
+  for (const w of bossWaves){
+    w.x += w.vx; w.life--;
+    for (const s of solids){ if (aabb(w, s)){ w.life = 0; break; } }
+    if (w.life > 0 && player.deadTimer === 0 && aabb(player, w)){
+      const knock = w.vx < 0 ? -1 : 1;
+      damagePlayer(1, knock);
+      w.life = 0;
+    }
+  }
+  bossWaves = bossWaves.filter(w => w.life > 0);
+}
+
+// -------------------- Player + Enemies + Projectiles --------------------
 function updatePlayer(){
   if (player.deadTimer > 0){
     player.deadTimer--;
@@ -972,7 +1149,6 @@ function updatePlayer(){
     player.dashCooldown = 45;
   }
 
-  // Throw homephone weapon
   if (KEYS.throw && player.throwCooldown === 0){
     const pr = {
       x: player.x + (player.facing > 0 ? player.w : -PHONE_W),
@@ -986,25 +1162,17 @@ function updatePlayer(){
     };
     projectiles.push(pr);
     player.throwCooldown = player.throwCooldownMax;
-
     if (state.levelIndex === 0) state.tutorial.threw = true;
   }
 
   player.vy = clamp(player.vy + GRAVITY, -50, MAX_FALL);
   moveAndCollide(player, solids);
 
-  if (player.y > canvas.height + 200){
-    player.hp = 0;
-    killPlayer();
-  }
-
-  // checkpoint
   if (checkpoint && aabb(player, checkpoint)){
     checkpoint.active = true;
     state.respawn = { x: checkpoint.x, y: checkpoint.y - 20 };
   }
 
-  // pickups
   for (const p of pickups){
     if (p.taken) continue;
     const box = { x:p.x, y:p.y, w:p.w, h:p.h };
@@ -1014,7 +1182,6 @@ function updatePlayer(){
     if (p.kind === "speed") player.speedBoostTimer = 60 * 8;
   }
 
-  // coins
   for (const c of coins){
     if (c.taken) continue;
     const box = { x:c.x, y:c.y, w:c.w, h:c.h };
@@ -1023,16 +1190,15 @@ function updatePlayer(){
     state.coins++;
   }
 
-  // exit
+  // Exit -> Stage Clear screen (NOT shop/pause)
   if (exitDoor && aabb(player, exitDoor)){
     if (!exitDoor.locked){
       if (state.levelIndex === 0) state.tutorial.reachedDoor = true;
-      beginTransition(state.levelIndex + 1);
+      openStageClear(state.levelIndex + 1);
     }
   }
 }
 
-// -------------------- Enemies --------------------
 function updateEnemies(){
   for (const e of enemies){
     e.x += e.vx;
@@ -1053,7 +1219,6 @@ function updateEnemies(){
   enemies = enemies.filter(e => e.hp > 0);
 }
 
-// -------------------- Projectiles --------------------
 function updateProjectiles(){
   for (const pr of projectiles){
     pr.x += pr.vx;
@@ -1089,11 +1254,6 @@ function updateProjectiles(){
   projectiles = projectiles.filter(p => p.life > 0);
 }
 
-// -------------------- Boss (placeholder: kept, not expanded here) --------------------
-function updateBoss(){ /* keep boss logic later if you want */ }
-function updateBossProjectiles(){ /* keep later */ }
-function updateBossWaves(){ /* keep later */ }
-
 // -------------------- HUD --------------------
 function updateHUD(){
   hudCoins.textContent = String(state.coins);
@@ -1116,14 +1276,6 @@ function drawSegmentBar(x, y, segments, filled, segW = 8, segH = 8, gap = 2){
     ctx.fillRect(sx, y, segW, segH);
   }
 }
-function drawLabel(text, x, y, align="left"){
-  ctx.save();
-  ctx.fillStyle = "#fff";
-  ctx.font = "12px monospace";
-  ctx.textAlign = align;
-  ctx.fillText(text, x, y);
-  ctx.restore();
-}
 function drawPlayerHP(){
   const segments = player.maxHp;
   const filled = clamp(player.hp, 0, player.maxHp);
@@ -1140,7 +1292,6 @@ function drawPlayerHP(){
 
   drawPixelFrame(x, y, frameW, frameH);
   drawSegmentBar(x+4, y+4, segments, filled, segW, segH, gap);
-  drawLabel("HP", x + frameW - 2, y + frameH + 14, "right");
 }
 function drawToast(){
   if (state.toast.t <= 0) return;
@@ -1187,24 +1338,11 @@ function drawEntity(img, ent, facing=1, blink=false){
     ctx.restore();
   }
 }
-
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
 
   for (const p of platforms) drawTiledPlatform(p);
-
-  if (DEBUG_HITBOX){
-    ctx.save();
-    ctx.strokeStyle = "#00ffff";
-    for (const s of solids){
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(s.x + s.w, s.y);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
 
   if (exitDoor){
     ctx.globalAlpha = exitDoor.locked ? 0.45 : 1.0;
@@ -1229,8 +1367,33 @@ function draw(){
     ctx.drawImage(images.coin, c.x, c.y, c.w, c.h);
   }
 
+  for (const pr of bossProjectiles){
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(pr.x, pr.y, pr.w, pr.h);
+    ctx.globalAlpha = 1.0;
+  }
+  for (const w of bossWaves){
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.globalAlpha = 1.0;
+  }
+
+  for (const e of enemies){
+    const img = e.type === "enemy1" ? images.enemy1 : images.enemy2;
+    const face = e.vx < 0 ? -1 : 1;
+    drawEntity(img, e, face, false);
+  }
+
   for (const pr of projectiles){
     ctx.drawImage(images.phone, pr.x, pr.y, pr.w, pr.h);
+  }
+
+  if (boss && boss.hp > 0){
+    const bImg = boss.type === "enemy2" ? images.enemy2 : images.enemy1;
+    const blink = boss.invuln > 0 && (boss.invuln % 4) < 2;
+    drawEntity(bImg, boss, boss.face, blink);
   }
 
   const pImg = images[`char_${selectedCharId}`];
@@ -1278,11 +1441,11 @@ function buildCharacterMenu(){
 function startGame(){
   state.running = true;
   state.paused = false;
-  state.shopOpen = false;
-  state.transition.active = false;
 
+  // close overlays
   setOverlay(pauseOverlay, false);
   setOverlay(shopOverlay, false);
+  setOverlay(stageOverlay, false);
   setOverlay(loadingOverlay, false);
 
   menuEl.classList.add("hidden");
@@ -1310,7 +1473,15 @@ function loop(now){
   if (state.running){
     if (state.transition.active){
       updateTransition(dtMs);
-      // keep tutorial checkboxes updating visually if it’s stage 1
+      updateTutorial();
+      draw();
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    // Frozen on stage clear or in shop
+    if (state.stageClear.active || state.shopOpen){
+      updateStageClearUI();
       updateTutorial();
       draw();
       requestAnimationFrame(loop);
@@ -1327,8 +1498,6 @@ function loop(now){
       updateHUD();
       updateToast();
       updateTutorial();
-    } else {
-      shopCoinsEl.textContent = String(state.coins);
     }
 
     draw();
