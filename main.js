@@ -190,6 +190,43 @@ const LEVELS = [
 
 // --- Game state ---
 let selectedCharId = null;
+// --- Sprite scaling (make characters/enemies feel like they belong in the world) ---
+const SPRITE_SCALE = 1.8; // try 2.0 if you want even bigger
+
+const PLAYER_BASE = { w: 34, h: 48 };
+const ENEMY_BASE  = { w: 40, h: 40 };
+const BOSS_BASE   = { w: 92, h: 92 };
+const PHONE_BASE  = { w: 18, h: 18 };
+
+const PLAYER_SIZE = { w: Math.round(PLAYER_BASE.w * SPRITE_SCALE), h: Math.round(PLAYER_BASE.h * SPRITE_SCALE) };
+const ENEMY_SIZE  = { w: Math.round(ENEMY_BASE.w  * SPRITE_SCALE), h: Math.round(ENEMY_BASE.h  * SPRITE_SCALE) };
+const BOSS_SIZE   = { w: Math.round(BOSS_BASE.w   * SPRITE_SCALE), h: Math.round(BOSS_BASE.h   * SPRITE_SCALE) };
+const PHONE_SIZE  = { w: Math.round(PHONE_BASE.w  * SPRITE_SCALE), h: Math.round(PHONE_BASE.h  * SPRITE_SCALE) };
+
+// Visual tweak: draw sprites slightly LOWER so feet sit on the platform art better
+const SPRITE_RENDER_Y_OFFSET = Math.round(6 * SPRITE_SCALE);
+
+// Snap helper: place an entity ON the nearest platform top (by X), near a preferred foot Y
+function snapEntityToNearestPlatform(ent, preferredFootY){
+  const cx = ent.x + ent.w / 2;
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const p of platforms){
+    if (cx < p.x || cx > p.x + p.w) continue;
+    const dist = Math.abs(p.y - preferredFootY);
+    if (dist < bestDist){
+      bestDist = dist;
+      best = p;
+    }
+  }
+
+  if (best){
+    ent.y = best.y - ent.h;
+    ent.vy = 0;
+    ent.onGround = true;
+  }
+}
 
 const state = {
   running: false,
