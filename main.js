@@ -79,7 +79,6 @@
   }
 
   // ---------------- Assets ----------------
-  // IMPORTANT: your repo has /assets with these exact filenames.
   const ASSET_BASE = "assets/";
 
   const FILES = {
@@ -115,10 +114,7 @@
       const im = await loadImage(ASSET_BASE + file);
       imgs[k] = im;
     });
-
     await Promise.all(want);
-
-    // shopkeeper portrait
     shopkeeperImg.src = imgs.Edgar.src;
   }
 
@@ -126,20 +122,24 @@
   const VIEW_W = canvas.width;
   const VIEW_H = canvas.height;
 
-  // World “floor”
-  const PLATFORM_H = 42;     // match the visual chunk we tile
-  const GROUND_Y = 640;      // top of the ground platform
+  const PLATFORM_H = 42;
+  const GROUND_Y = 640;
 
-  // Make sprites feel bigger on the platforms
+  // ✅ VISUAL SCALE IMPROVED
+  // These are purely draw-scale. Colliders stay reasonable.
   const DRAW = {
-    playerScale: 2.05,
-    enemyScale: 2.00,
-    exitScale: 2.10,
+    playerScale: 2.30,
+    enemyScale: 2.20,
+    exitScale: 2.20,
     coinScale: 1.45,
-    weaponScale: 1.35
+    weaponScale: 1.35,
+
+    // ✅ “Feet” pad pushes sprite down a tiny bit so they look planted
+    playerFootPad: 10,
+    enemyFootPad: 8,
+    exitFootPad: 6
   };
 
-  // Physics tuned for consistent jump reach
   const PHYS = {
     gravity: 2400,
     accel: 3400,
@@ -150,7 +150,7 @@
 
   // ---------------- State ----------------
   const GAME = {
-    mode: "menu", // menu | play | paused | stageclear | shop | loading
+    mode: "menu",
     stage: 1,
     coins: 0,
 
@@ -169,19 +169,16 @@
     exit: null,
     exitLocked: false,
 
-    // loading timer
     loadingT: 0,
-    loadingDur: 8.0, // 5–10 seconds: using 8s
+    loadingDur: 8.0,
     pendingStage: null,
 
-    // tutorial checks
     tutorial: { move:false, jump:false, throw:false }
   };
 
-  // Player collider is intentionally smaller than the sprite (fixes “collision box too big”)
+  // ✅ Player collider is smaller than sprite (fix “hitbox too big”)
   const player = {
     char: "Nate",
-
     x: 120, y: GROUND_Y - 74,
     w: 44, h: 74,
     vx: 0, vy: 0,
@@ -222,10 +219,10 @@
       maxHp: is2 ? 6 : 4,
       damage: 1,
 
-      // anchoring enemy to a platform fixes the “not on platform” feeling
+      // ✅ Platform anchoring
       platform: platformRef,
 
-      // patrol bounds (usually platform edges)
+      // Patrol bounds
       patrolMin: x - 140,
       patrolMax: x + 140,
 
@@ -277,28 +274,13 @@
     ent.y = clamp(ent.y, -1200, VIEW_H + 600);
   }
 
-  function platformUnderFeet(ent, extraDown=6) {
-    // Returns the platform that the entity is currently standing on (or null)
-    const feet = {
-      x: ent.x + 4,
-      y: ent.y + ent.h,
-      w: ent.w - 8,
-      h: extraDown
-    };
-    for (const p of GAME.platforms) {
-      if (rectsOverlap(feet, p)) return p;
-    }
-    return null;
-  }
-
   function willStepOff(ent, dir) {
-    // Look ahead a bit and see if there will be ground/platform below next step
     const aheadX = ent.x + ent.w/2 + dir * (ent.w/2 + 8);
     const probe = { x: aheadX, y: ent.y + ent.h + 2, w: 2, h: 10 };
     for (const p of GAME.platforms) {
-      if (rectsOverlap(probe, p)) return false; // safe
+      if (rectsOverlap(probe, p)) return false;
     }
-    return true; // would fall
+    return true;
   }
 
   // ---------------- Drawing ----------------
@@ -307,7 +289,6 @@
     const scale = VIEW_H / im.height;
     const tileW = im.width * scale;
 
-    // Parallax scroll
     const par = 0.18;
     const x0 = -((GAME.camX * par) % tileW);
 
@@ -318,8 +299,6 @@
 
   function drawPlatform(p) {
     const im = imgs.Platform;
-
-    // Tile the platform texture horizontally, keep platform height consistent
     const scale = PLATFORM_H / im.height;
     const tileW = im.width * scale;
 
@@ -335,7 +314,6 @@
   }
 
   function drawAnchored(im, x, y, w, h, scale=1.0, footPad=0) {
-    // Anchor to collider bottom, so feet stay “on platform”
     const dw = w * scale;
     const dh = h * scale;
     const dx = x + w/2 - dw/2;
@@ -344,13 +322,11 @@
   }
 
   function drawCoin(c) {
-    const im = imgs.Coin;
-    drawAnchored(im, c.x, c.y, c.w, c.h, DRAW.coinScale, 0);
+    drawAnchored(imgs.Coin, c.x, c.y, c.w, c.h, DRAW.coinScale, 0);
   }
 
   function drawExit(ex) {
-    const im = imgs.Exit;
-    drawAnchored(im, ex.x, ex.y, ex.w, ex.h, DRAW.exitScale, 4);
+    drawAnchored(imgs.Exit, ex.x, ex.y, ex.w, ex.h, DRAW.exitScale, DRAW.exitFootPad);
   }
 
   function drawHPBlocks(ent) {
@@ -359,7 +335,7 @@
     const bw = 10, bh = 6, gap = 2;
     const total = blocks*(bw+gap)-gap;
     const x = ent.x + ent.w/2 - total/2;
-    const y = ent.y - 12;
+    const y = ent.y - 16;
 
     ctx.fillStyle = "rgba(0,0,0,.6)";
     ctx.fillRect(x-3, y-3, total+6, bh+6);
@@ -415,25 +391,22 @@
 
     addGround(GAME.worldW);
 
-    // Easy stepping platforms above ground (but ground stays clear so exit is always reachable)
     const p1 = { x: 420, y: 520, w: 360, h: PLATFORM_H };
     const p2 = { x: 860, y: 440, w: 360, h: PLATFORM_H };
     const p3 = { x: 1320, y: 520, w: 360, h: PLATFORM_H };
     GAME.platforms.push(p1, p2, p3);
 
-    // Coins
     for (let i=0;i<7;i++){
       GAME.pickups.push({ kind:"coin", x: 480 + i*120, y: 470 - (i%2)*38, w:24, h:24, value:1 });
     }
 
-    // One basic enemy on p2
-    const ePlat = p2;
-    const e = makeEnemy("enemy1", ePlat.x + 140, ePlat.y - 70, false, ePlat);
-    e.patrolMin = ePlat.x + 10;
-    e.patrolMax = ePlat.x + ePlat.w - e.w - 10;
+    // ✅ enemy on platform, y is exact platform top - enemy height
+    const e = makeEnemy("enemy1", p2.x + 140, p2.y - 70, false, p2);
+    e.y = p2.y - e.h;
+    e.patrolMin = p2.x + 10;
+    e.patrolMax = p2.x + p2.w - e.w - 10;
     GAME.enemies.push(e);
 
-    // Exit on ground path and BIG
     GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
 
     resetPlayer(120, GROUND_Y - player.h);
@@ -454,8 +427,9 @@
     const p3 = { x: 1440, y: 520, w: 380, h: PLATFORM_H };
     GAME.platforms.push(p1, p2, p3);
 
-    // Boss on ground (feels “boss fight”)
+    // Boss on ground feels good, but you can move him to p3 if you want later
     const boss = makeEnemy("enemy2", 1600, GROUND_Y - 76, true, null);
+    boss.y = GROUND_Y - boss.h;
     boss.patrolMin = 1200;
     boss.patrolMax = 2000;
     GAME.enemies.push(boss);
@@ -464,11 +438,11 @@
     GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
 
     resetPlayer(160, GROUND_Y - player.h);
-
     tutorialBox.classList.add("hidden");
   }
 
-  // Safe procedural: ground path always clear, platforms are optional rewards.
+  // ✅ Procedural stages: enemies spawn on PLATFORMS by default.
+  // They will only DROP if the player is below and close enough.
   function generateProcedural(stageNum) {
     clearWorld();
 
@@ -478,15 +452,16 @@
     GAME.worldW = 2600 + Math.min(1200, stageNum * 220);
     addGround(GAME.worldW);
 
-    // Exit ALWAYS reachable by walking right on ground
+    // Exit ALWAYS reachable by ground path
     GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
     GAME.exitLocked = false;
 
-    // Optional platform “islands” above ground
     let x = 420;
     let y = 520;
 
     const islandCount = 6 + Math.min(7, stageNum);
+    const madePlatforms = [];
+
     for (let i=0;i<islandCount;i++){
       const w = 320 + Math.floor(rng()*220);
       const dx = 220 + Math.floor(rng()*160);
@@ -499,31 +474,34 @@
 
       const plat = { x, y, w, h: PLATFORM_H };
       GAME.platforms.push(plat);
+      madePlatforms.push(plat);
 
-      // coins
+      // coins above platform
       const coinN = 2 + Math.floor(rng()*4);
       for (let c=0;c<coinN;c++){
         GAME.pickups.push({ kind:"coin", x: x + 40 + c*90, y: y - 46, w:24, h:24, value:1 });
       }
 
-      // enemy sometimes on island, anchored to island
-      if (rng() < 0.55) {
+      // ✅ enemy sometimes on this platform (anchored)
+      if (rng() < 0.65) {
         const t = rng() < 0.55 ? "enemy1" : "enemy2";
-        const e = makeEnemy(t, x + 90, y - (t==="enemy2"?76:70), false, plat);
+        const e = makeEnemy(t, x + 90, y, false, plat);
+        e.y = plat.y - e.h;                 // exact top alignment
         e.patrolMin = x + 10;
         e.patrolMax = x + w - e.w - 10;
         GAME.enemies.push(e);
       }
     }
 
-    // A couple ground enemies (never block exit)
-    const gCount = 1 + Math.min(3, Math.floor(stageNum/2));
-    for (let i=0;i<gCount;i++){
-      const gx = 700 + i*520 + Math.floor(rng()*160);
-      const gt = rng() < 0.5 ? "enemy1" : "enemy2";
-      const e = makeEnemy(gt, gx, GROUND_Y - (gt==="enemy2"?76:70), false, null);
-      e.patrolMin = gx - 120;
-      e.patrolMax = gx + 120;
+    // ✅ No default ground enemies anymore (per your request).
+    // If we somehow generated 0 platforms, add one safe platform with one enemy.
+    if (madePlatforms.length === 0) {
+      const plat = { x: 720, y: 520, w: 520, h: PLATFORM_H };
+      GAME.platforms.push(plat);
+      const e = makeEnemy("enemy1", plat.x + 120, plat.y, false, plat);
+      e.y = plat.y - e.h;
+      e.patrolMin = plat.x + 10;
+      e.patrolMax = plat.x + plat.w - e.w - 10;
       GAME.enemies.push(e);
     }
 
@@ -691,7 +669,6 @@
   }
 
   // ---------------- Character select ----------------
-  // Edgar is shopkeeper only (NOT playable)
   const PLAYABLE = ["Gilly","Scott","Kevin","Nate"];
   let selectedChar = null;
 
@@ -749,7 +726,6 @@
       dmg: 2
     });
 
-    // tutorial check
     if (GAME.stage === 1 && !GAME.tutorial.throw) {
       GAME.tutorial.throw = true;
       setTutorialChecks();
@@ -764,57 +740,89 @@
     updatePlayerHpHud();
 
     if (player.hp <= 0) {
-      // restart stage on death
       loadStage(GAME.stage);
     }
   }
 
-  // ---------------- AI (fix enemy tracking) ----------------
+  // ---------------- AI ----------------
+  // ✅ Goal: enemies live on platforms, patrol there,
+  // and ONLY drop down if the player is below + close.
   function enemyThink(e, dt) {
     e.aiT += dt;
 
-    // Keep them attached to their platform if they have one
-    if (e.platform) {
-      // clamp to platform bounds
-      e.x = clamp(e.x, e.platform.x + 6, e.platform.x + e.platform.w - e.w - 6);
-    }
-
-    // “chase” only if player is close AND same vertical lane (prevents weird climbing/teleport vibes)
     const dx = (player.x + player.w/2) - (e.x + e.w/2);
     const absDx = Math.abs(dx);
-    const laneOk = Math.abs((player.y + player.h) - (e.y + e.h)) < 30;
-
-    let wantsChase = absDx < 320 && laneOk;
-
-    // Boss is more aggressive
-    if (e.isBoss && absDx < 520) wantsChase = true;
-
     const dir = dx < 0 ? -1 : 1;
 
-    // Never let enemies walk off edges (this fixes the “not on platform” and “sliding” issues)
-    if (wantsChase) {
-      // only chase if it won't step into air
-      if (!willStepOff(e, dir)) {
-        e.vx = dir * e.speed;
-        e.facing = dir;
-      } else {
-        // edge reached: stop and “guard”
-        e.vx *= 0.2;
-      }
-    } else {
-      // patrol
-      if (e.x < e.patrolMin) e.facing = 1;
-      if (e.x > e.patrolMax) e.facing = -1;
+    const playerFeet = player.y + player.h;
+    const enemyFeet = e.y + e.h;
 
-      if (!willStepOff(e, e.facing)) {
-        e.vx = e.facing * e.speed * 0.75;
-      } else {
-        e.facing *= -1;
-        e.vx = 0;
+    const sameLane = Math.abs(playerFeet - enemyFeet) < 30;
+    const playerBelowEnemy = (playerFeet > enemyFeet + 40);
+
+    let wantsChase = absDx < 320 && (sameLane || playerBelowEnemy);
+    if (e.isBoss && absDx < 520) wantsChase = true;
+
+    // If on a platform, clamp within its bounds (prevents drifting off)
+    if (e.platform) {
+      e.x = clamp(e.x, e.platform.x + 6, e.platform.x + e.platform.w - e.w - 6);
+
+      // ✅ Drop logic: ONLY if player is below + close
+      // and enemy is at the edge in the chase direction.
+      if (wantsChase && playerBelowEnemy && absDx < 260) {
+        const edge = 10;
+        const atLeft = e.x <= e.platform.x + edge;
+        const atRight = e.x >= e.platform.x + e.platform.w - e.w - edge;
+
+        // walk to edge first
+        e.facing = dir;
+        e.vx = dir * e.speed * 0.85;
+
+        // once at the edge, detach (gravity will take over)
+        if ((dir < 0 && atLeft) || (dir > 0 && atRight)) {
+          e.platform = null; // ✅ now it can fall to ground to chase
+          e.patrolMin = e.x - 180;
+          e.patrolMax = e.x + 180;
+        }
+        return;
       }
+
+      // Normal platform patrol / chase without falling off
+      if (wantsChase && sameLane) {
+        // chase but never step into air
+        if (!willStepOff(e, dir)) {
+          e.vx = dir * e.speed;
+          e.facing = dir;
+        } else {
+          e.vx *= 0.15;
+        }
+      } else {
+        // patrol on platform
+        if (e.x < e.patrolMin) e.facing = 1;
+        if (e.x > e.patrolMax) e.facing = -1;
+
+        if (!willStepOff(e, e.facing)) {
+          e.vx = e.facing * e.speed * 0.75;
+        } else {
+          e.facing *= -1;
+          e.vx = 0;
+        }
+      }
+
+      return;
     }
 
-    // Small boss hop occasionally (keeps it spicy but not broken)
+    // Ground / unanchored behavior (after dropping)
+    if (wantsChase) {
+      e.vx = dir * e.speed;
+      e.facing = dir;
+    } else {
+      if (e.x < e.patrolMin) e.facing = 1;
+      if (e.x > e.patrolMax) e.facing = -1;
+      e.vx = e.facing * e.speed * 0.65;
+    }
+
+    // Boss hop
     if (e.isBoss) {
       e.jumpCd = Math.max(0, e.jumpCd - dt);
       if (e.jumpCd <= 0 && e.onGround && absDx < 420) {
@@ -842,12 +850,10 @@
 
     if (GAME.mode === "stageclear" || GAME.mode === "shop") return;
 
-    // ----- Player cooldowns -----
     player.dashCd = Math.max(0, player.dashCd - dt);
     player.throwCd = Math.max(0, player.throwCd - dt);
     player.invuln = Math.max(0, player.invuln - dt);
 
-    // ----- Movement input -----
     let move = 0;
     if (down("ArrowLeft") || down("KeyA")) move -= 1;
     if (down("ArrowRight") || down("KeyD")) move += 1;
@@ -863,31 +869,24 @@
     const maxSpeed = PHYS.maxSpeed * (GAME.speedUnlocked ? 1.25 : 1.0);
     player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
 
-    // Jump
     if ((down("Space") || down("ArrowUp")) && player.onGround) {
       player.vy = -PHYS.jump;
       player.onGround = false;
-
       if (GAME.stage === 1 && !GAME.tutorial.jump) {
         GAME.tutorial.jump = true;
         setTutorialChecks();
       }
     }
 
-    // Dash
     if (GAME.dashUnlocked && down("ShiftLeft") && player.dashCd <= 0) {
       player.vx = player.facing * (maxSpeed * 2.2);
       player.dashCd = 1.0;
     }
 
-    // Throw
     if (down("KeyF")) {
-      if (player.throwCd <= 0) {
-        throwWeapon();
-      }
+      if (player.throwCd <= 0) throwWeapon();
     }
 
-    // Tutorial move check
     if (GAME.stage === 1 && !GAME.tutorial.move) {
       if (Math.abs(player.vx) > 40) {
         GAME.tutorial.move = true;
@@ -895,13 +894,9 @@
       }
     }
 
-    // ----- Gravity -----
     player.vy += PHYS.gravity * dt;
-
-    // ----- Collisions -----
     resolvePlatformCollisions(player, dt);
 
-    // ----- Pickups -----
     for (let i = GAME.pickups.length - 1; i >= 0; i--) {
       const p = GAME.pickups[i];
       if (rectsOverlap(player, p)) {
@@ -913,45 +908,36 @@
       }
     }
 
-    // ----- Enemies -----
     for (let i = GAME.enemies.length - 1; i >= 0; i--) {
       const e = GAME.enemies[i];
 
-      // Think
       enemyThink(e, dt);
 
-      // Physics
       e.vy += PHYS.gravity * dt;
       resolvePlatformCollisions(e, dt);
 
-      // If anchored to a platform, lock their “ground” to that platform (prevents drift)
+      // ✅ If anchored to a platform, keep exact footing
       if (e.platform) {
-        // snap to platform top if close
         const desiredY = e.platform.y - e.h;
-        if (Math.abs(e.y - desiredY) < 8) {
+        if (Math.abs(e.y - desiredY) < 10) {
           e.y = desiredY;
           e.vy = 0;
           e.onGround = true;
         }
       }
 
-      // Contact damage
       if (rectsOverlap(player, e)) {
         hurtPlayer(e.damage);
       }
 
-      // Remove dead
       if (e.hp <= 0) {
         GAME.enemies.splice(i, 1);
-
-        // If boss died, unlock exit
         if (GAME.exitLocked && GAME.enemies.every(en => !en.isBoss)) {
           GAME.exitLocked = false;
         }
       }
     }
 
-    // ----- Projectiles -----
     for (let i = GAME.projectiles.length - 1; i >= 0; i--) {
       const pr = GAME.projectiles[i];
       pr.life -= dt;
@@ -959,13 +945,9 @@
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
 
-      // hit platforms => bounce a bit then die quickly
       let hitPlat = false;
       for (const p of GAME.platforms) {
-        if (rectsOverlap(pr, p)) {
-          hitPlat = true;
-          break;
-        }
+        if (rectsOverlap(pr, p)) { hitPlat = true; break; }
       }
       if (hitPlat) {
         pr.vx *= 0.25;
@@ -973,7 +955,6 @@
         pr.life = Math.min(pr.life, 0.25);
       }
 
-      // hit enemies
       for (const e of GAME.enemies) {
         if (rectsOverlap(pr, e)) {
           e.hp -= pr.dmg;
@@ -985,64 +966,52 @@
       if (pr.life <= 0) GAME.projectiles.splice(i, 1);
     }
 
-    // ----- Exit -----
     if (GAME.exit && !GAME.exitLocked) {
       if (rectsOverlap(player, GAME.exit)) {
-        // clear stage
         openStageClear();
       }
     }
 
-    // ----- Camera -----
     const targetCam = clamp(player.x - VIEW_W * 0.35, 0, Math.max(0, GAME.worldW - VIEW_W));
     GAME.camX = lerp(GAME.camX, targetCam, 0.08);
 
-    // HUD tick
     updateHud();
   }
 
   // ---------------- Render ----------------
   function render() {
-    // Clear
     ctx.clearRect(0,0,VIEW_W,VIEW_H);
 
-    // Camera
     ctx.save();
     ctx.translate(-GAME.camX, 0);
-
-    // Background is drawn in screen space (no cam translate), so draw it before translate
     ctx.restore();
+
     drawBackground();
+
     ctx.save();
     ctx.translate(-GAME.camX, 0);
 
-    // Platforms
     for (const p of GAME.platforms) drawPlatform(p);
 
-    // Pickups
     for (const p of GAME.pickups) {
       if (p.kind === "coin") drawCoin(p);
     }
 
-    // Exit
     if (GAME.exit) drawExit(GAME.exit);
 
-    // Projectiles
     for (const pr of GAME.projectiles) {
       drawAnchored(imgs.Weapon, pr.x, pr.y, pr.w, pr.h, DRAW.weaponScale, 0);
     }
 
-    // Enemies + HP
     for (const e of GAME.enemies) {
       const im = e.type === "enemy2" ? imgs.Enemy2 : imgs.Enemy1;
-      drawAnchored(im, e.x, e.y, e.w, e.h, DRAW.enemyScale, 4);
+      drawAnchored(im, e.x, e.y, e.w, e.h, DRAW.enemyScale, DRAW.enemyFootPad);
       drawHPBlocks(e);
     }
 
-    // Player (blink when invuln)
     const pIm = imgs[player.char];
     if (player.invuln <= 0 || Math.floor(nowMs()/90)%2===0) {
-      drawAnchored(pIm, player.x, player.y, player.w, player.h, DRAW.playerScale, 6);
+      drawAnchored(pIm, player.x, player.y, player.w, player.h, DRAW.playerScale, DRAW.playerFootPad);
     }
 
     ctx.restore();
@@ -1104,9 +1073,147 @@
     closeShopBackToClear();
   });
 
+  // ---------------- Stage clear / shop / loading ----------------
+  function openStageClear() {
+    GAME.mode = "stageclear";
+    stageClearTitle.textContent = `STAGE ${GAME.stage} CLEARED`;
+    stageClearSub.textContent = GAME.shopUsedThisStage
+      ? "Shop already used this stage."
+      : "Shop available once (after clearing).";
+    stageClearOverlay.classList.remove("hidden");
+  }
+
+  function openShop() {
+    if (GAME.shopUsedThisStage) return;
+    GAME.mode = "shop";
+    shopOverlay.classList.remove("hidden");
+    renderShop();
+  }
+
+  function closeShopBackToClear() {
+    shopOverlay.classList.add("hidden");
+    GAME.shopUsedThisStage = true;
+    openStageClear();
+  }
+
+  function startLoadingNextStage(nextStage) {
+    GAME.mode = "loading";
+    loadingOverlay.classList.remove("hidden");
+    GAME.loadingT = 0;
+    GAME.pendingStage = nextStage;
+    loadingFill.style.width = "0%";
+  }
+
+  // ---------------- Shop ----------------
+  const SHOP_ITEMS = [
+    {
+      id:"dash",
+      name:"Unlock Dash",
+      desc:"Press Shift to dash forward (short burst).",
+      cost: 10,
+      canBuy: () => !GAME.dashUnlocked,
+      buy: () => (GAME.dashUnlocked = true)
+    },
+    {
+      id:"speed",
+      name:"Unlock Speedboost",
+      desc:"Move faster permanently.",
+      cost: 12,
+      canBuy: () => !GAME.speedUnlocked,
+      buy: () => (GAME.speedUnlocked = true)
+    },
+    {
+      id:"hp",
+      name:"+1 Max HP",
+      desc:"Increases max HP by 1 (up to 12).",
+      cost: 15,
+      canBuy: () => player.maxHp < 12,
+      buy: () => { player.maxHp += 1; player.hp = player.maxHp; }
+    },
+    {
+      id:"heal",
+      name:"Heal to Full",
+      desc:"Restore HP to max.",
+      cost: 6,
+      canBuy: () => player.hp < player.maxHp,
+      buy: () => { player.hp = player.maxHp; }
+    }
+  ];
+
+  function renderShop() {
+    shopCoinsEl.textContent = String(GAME.coins);
+    shopList.innerHTML = "";
+
+    for (const item of SHOP_ITEMS) {
+      const wrap = document.createElement("div");
+      wrap.className = "shop-item";
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = item.name;
+
+      const desc = document.createElement("div");
+      desc.className = "desc";
+      desc.textContent = item.desc;
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+
+      const price = document.createElement("div");
+      price.className = "mono";
+      price.textContent = `Cost: ${item.cost}`;
+
+      const btn = document.createElement("button");
+      btn.className = "btn-solid";
+      const canBuy = item.canBuy();
+      btn.disabled = !canBuy || GAME.coins < item.cost;
+      btn.textContent = canBuy ? (GAME.coins < item.cost ? "Need coins" : "Buy") : "Owned";
+
+      btn.onclick = () => {
+        if (btn.disabled) return;
+        GAME.coins -= item.cost;
+        item.buy();
+        renderShop();
+        updateHud();
+        updatePlayerHpHud();
+      };
+
+      meta.appendChild(price);
+      meta.appendChild(btn);
+
+      wrap.appendChild(name);
+      wrap.appendChild(desc);
+      wrap.appendChild(meta);
+
+      shopList.appendChild(wrap);
+    }
+  }
+
+  // ---------------- Tutorial ----------------
+  function setTutorialChecks() {
+    tutMove.classList.toggle("done", GAME.tutorial.move);
+    tutJump.classList.toggle("done", GAME.tutorial.jump);
+    tutThrow.classList.toggle("done", GAME.tutorial.throw);
+
+    if (GAME.tutorial.move && GAME.tutorial.jump && GAME.tutorial.throw) {
+      tutorialBox.classList.add("hidden");
+    }
+  }
+
+  // ---------------- Pause ----------------
+  function togglePause() {
+    if (GAME.mode === "menu" || GAME.mode === "stageclear" || GAME.mode === "shop" || GAME.mode === "loading") return;
+    if (GAME.mode === "paused") {
+      GAME.mode = "play";
+      pauseOverlay.classList.add("hidden");
+    } else if (GAME.mode === "play") {
+      GAME.mode = "paused";
+      pauseOverlay.classList.remove("hidden");
+    }
+  }
+
   // ---------------- Boot ----------------
   async function boot() {
-    // Make sure overlays are correct at start (fixes “stuck on shop page”)
     hideAllOverlays();
     menuEl.classList.remove("hidden");
     tutorialBox.classList.add("hidden");
@@ -1115,7 +1222,7 @@
       await loadAllAssets();
     } catch (err) {
       console.error(err);
-      alert("Asset load failed. Make sure files are in /assets and names match exactly.");
+      alert("Asset load failed. Make sure files are in /assets and names match exactly (case matters).");
       return;
     }
 
