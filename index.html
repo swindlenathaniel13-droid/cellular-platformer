@@ -9,315 +9,132 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <style>
-    :root{
-      --bg1:#050b18;
-      --bg2:#0b1c3a;
-      --stroke:rgba(255,255,255,.10);
-      --stroke2:rgba(255,255,255,.16);
-      --text:rgba(255,255,255,.92);
-      --muted:rgba(255,255,255,.62);
-      --shadow: 0 18px 60px rgba(0,0,0,.55);
-      --radius:16px;
-    }
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      color:var(--text);
-      background:
-        radial-gradient(1200px 700px at 25% 15%, rgba(50,90,170,.25), transparent 55%),
-        radial-gradient(900px 600px at 70% 80%, rgba(40,200,180,.10), transparent 55%),
-        linear-gradient(180deg, var(--bg1), var(--bg2));
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      overflow-x:hidden;
-    }
-    .shell{ max-width:1480px; margin:22px auto 34px; padding:0 18px; }
-    .topbar{
-      display:flex; align-items:center; justify-content:space-between; gap:14px;
-      padding:14px 18px;
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      border:1px solid var(--stroke);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      backdrop-filter: blur(10px);
-    }
-    .title{ font-weight:800; display:flex; align-items:center; gap:10px; }
-    .title .badge{
-      font-family:"Press Start 2P", monospace;
-      font-size:12px;
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.2);
-    }
-    .controls{ color:var(--muted); font-size:13px; text-align:right; white-space:nowrap; }
-
-    .gamecard{
-      margin-top:14px;
-      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-      border:1px solid var(--stroke);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      overflow:hidden;
-    }
-    .canvasWrap{
-      position:relative;
-      background:rgba(0,0,0,.25);
-      border-top:1px solid var(--stroke);
-      border-bottom:1px solid var(--stroke);
-    }
-    canvas{
-      display:block;
-      width:100%;
-      height:auto;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      background:#000;
-    }
-
-    .hud{
-      display:flex; gap:10px; flex-wrap:wrap;
-      padding:12px 14px; align-items:center; justify-content:space-between;
-    }
-    .hud-left{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .pill{
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.25);
-      padding:8px 10px;
-      border-radius:999px;
-      font-size:13px;
-      color:rgba(255,255,255,.88);
-      min-height:34px;
-      display:flex; align-items:center;
-    }
-    .footer{ text-align:center; padding:10px 0 14px; color:rgba(255,255,255,.45); font-size:12px; }
-
-    /* overlays */
-    .overlay{
-      position:absolute; inset:0;
-      display:flex; align-items:center; justify-content:center;
-      padding:18px;
-      background:rgba(0,0,0,.55);
-      backdrop-filter: blur(6px);
-      z-index: 10;
-    }
-    .hidden{ display:none !important; }
-
-    .panel{
-      width:min(860px, 96vw);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      border:1px solid var(--stroke2);
-      border-radius:18px;
-      box-shadow: 0 22px 70px rgba(0,0,0,.65);
-      overflow:hidden;
-    }
-    .panel .hdr{
-      padding:14px 16px;
-      border-bottom:1px solid var(--stroke);
-      display:flex; align-items:center; justify-content:space-between; gap:14px;
-    }
-    .panel .hdr h2{
-      margin:0;
-      font-size:16px;
-      font-family:"Press Start 2P", monospace;
-      font-weight:400;
-      letter-spacing:.2px;
-    }
-    .panel .body{ padding:14px 16px 16px; font-size:13px; line-height:1.45; }
-
-    button{
-      border:1px solid var(--stroke2);
-      background:rgba(0,0,0,.25);
-      color:rgba(255,255,255,.92);
-      padding:10px 12px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:800;
-    }
-    button:disabled{ opacity:.45; cursor:not-allowed; }
-    .btn-solid{ background:rgba(70,130,255,.18); border-color:rgba(120,170,255,.35); }
-    .btnrow{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:12px; }
-
-    .grid{
-      display:grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap:12px;
-      margin-top:10px;
-    }
-    .char-card{
-      border:1px solid var(--stroke);
-      background:rgba(0,0,0,.22);
-      border-radius:14px;
-      padding:12px;
-      display:flex; gap:12px; align-items:center;
-      cursor:pointer;
-      user-select:none;
-      transition: transform .08s ease, border-color .08s ease;
-    }
-    .char-card:hover{ transform:translateY(-1px); border-color:rgba(255,255,255,.18); }
-    .char-card.selected{ border-color:rgba(120,170,255,.55); background:rgba(70,130,255,.10); }
-    .char-card img{
-      width:54px; height:54px; object-fit:contain;
-      image-rendering:pixelated;
-      background:rgba(0,0,0,.20);
-      border:1px solid var(--stroke);
-      border-radius:12px;
-      padding:6px;
-    }
-    .char-name{ font-weight:900; }
-    .small{ color:rgba(255,255,255,.60); font-size:12px; }
-
-    .tutorial{
-      position:absolute;
-      left:16px; top:16px;
-      width:min(420px, 92vw);
-      padding:12px 12px 10px;
-      border-radius:14px;
-      border:1px solid var(--stroke2);
-      background:rgba(0,0,0,.35);
-      box-shadow:0 16px 45px rgba(0,0,0,.55);
-      z-index: 8;
-    }
-    .tutorial h3{
-      margin:0 0 6px 0;
-      font-family:"Press Start 2P", monospace;
-      font-weight:400;
-      font-size:12px;
-    }
-    .check{ display:flex; align-items:center; gap:10px; margin:6px 0; font-size:12px; }
-    .dot{ width:12px; height:12px; border:1px solid rgba(255,255,255,.6); background:rgba(0,0,0,.4); border-radius:3px; }
-    .check.done .dot{ background:rgba(255,255,255,.90); }
-
-    .loadbar{
-      width:100%; height:18px; border-radius:999px;
-      border:1px solid var(--stroke2);
-      background:rgba(0,0,0,.35);
-      overflow:hidden;
-      margin-top:12px;
-    }
-    .loadfill{ height:100%; width:0%; background:rgba(255,255,255,.85); }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="shell">
-    <div class="topbar">
-      <div class="title"><span class="badge">Pixel Platformer</span></div>
+  <div class="page">
+    <header class="topbar">
+      <div class="title">
+        <span class="badge">Pixel Platformer</span>
+      </div>
       <div class="controls">
         Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
       </div>
-    </div>
+    </header>
 
-    <div class="gamecard">
-      <div class="canvasWrap">
+    <main class="stage">
+      <div class="game-frame">
         <canvas id="game" width="1280" height="720"></canvas>
 
+        <!-- Player HP (top right) -->
+        <div id="hpHud" class="hp-hud">
+          <div class="hp-label">HP</div>
+          <div id="hpBlocks" class="hp-blocks"></div>
+        </div>
+
         <!-- Tutorial overlay -->
-        <div id="tutorialBox" class="tutorial hidden">
-          <h3>HOW TO PLAY</h3>
-          <div id="tutMove" class="check"><div class="dot"></div><div>Move: A/D or ←/→</div></div>
-          <div id="tutJump" class="check"><div class="dot"></div><div>Jump: Space</div></div>
-          <div id="tutThrow" class="check"><div class="dot"></div><div>Throw: F</div></div>
-          <div class="small" style="margin-top:8px; color: rgba(255,255,255,.55);">
-            Finish all 3 to hide this box.
+        <div id="tutorialBox" class="overlay tutorial hidden">
+          <div class="overlay-card">
+            <div class="overlay-title">STAGE 1: HOW TO PLAY</div>
+            <div class="overlay-text">Do these once to continue:</div>
+            <ul class="checklist">
+              <li id="tutMove">Move left/right (A/D or ←/→)</li>
+              <li id="tutJump">Jump (Space)</li>
+              <li id="tutThrow">Throw weapon (F)</li>
+            </ul>
+            <div class="overlay-text small">Tip: The exit door is always on the ground path.</div>
           </div>
         </div>
 
-        <!-- MENU (VISIBLE on boot, so you never get a black “nothing” screen) -->
-        <div id="menu" class="overlay">
-          <div class="panel">
-            <div class="hdr">
-              <h2>SELECT CHARACTER</h2>
-              <div class="small">Pick one to start.</div>
-            </div>
-            <div class="body">
-              <div class="small" style="margin-bottom:8px;">
-                If you still see a black screen after this: your <b>main.js</b> isn’t loading (wrong filename/path/case).
-              </div>
-              <div id="charGrid" class="grid">
-                <div class="small">Loading assets…</div>
-              </div>
-              <div class="btnrow">
-                <button id="btnStart" class="btn-solid" disabled>Start Game</button>
-              </div>
-              <div class="small" style="margin-top:10px;">
-                Assets can live in repo root <b>or</b> <code>/assets/</code>.
-              </div>
+        <!-- Main menu -->
+        <div id="menu" class="overlay menu">
+          <div class="overlay-card wide">
+            <div class="overlay-title">CHOOSE YOUR CHARACTER</div>
+            <div id="charGrid" class="char-grid"></div>
+            <div class="row">
+              <button id="btnStart" class="btn-solid" disabled>START</button>
+              <div class="small note">Assets must be in <code>/assets</code>.</div>
             </div>
           </div>
         </div>
 
-        <!-- PAUSE -->
+        <!-- Pause -->
         <div id="pauseOverlay" class="overlay hidden">
-          <div class="panel">
-            <div class="hdr"><h2>PAUSED</h2><div class="small">Esc to resume</div></div>
-            <div class="body">
-              <div class="btnrow">
-                <button id="btnResume" class="btn-solid">Resume</button>
-                <button id="btnRestart">Restart Stage</button>
-                <button id="btnBackMenu">Back to Menu</button>
-              </div>
+          <div class="overlay-card">
+            <div class="overlay-title">PAUSED</div>
+            <div class="row">
+              <button id="btnResume" class="btn-solid">RESUME</button>
+              <button id="btnRestart" class="btn-outline">RESTART</button>
+              <button id="btnBackMenu" class="btn-outline">MAIN MENU</button>
             </div>
           </div>
         </div>
 
-        <!-- STAGE CLEAR -->
+        <!-- Stage clear -->
         <div id="stageClearOverlay" class="overlay hidden">
-          <div class="panel">
-            <div class="hdr"><h2 id="stageClearTitle">STAGE CLEARED</h2><div class="small">Shop once per stage.</div></div>
-            <div class="body">
-              <div class="small" id="stageClearSub">Door opened.</div>
-              <div class="btnrow">
-                <button id="btnShop" class="btn-solid">Shop</button>
-                <button id="btnNextStage" class="btn-solid">Next Stage</button>
-                <button id="btnClearRestart">Restart</button>
-              </div>
+          <div class="overlay-card wide">
+            <div id="stageClearTitle" class="overlay-title">STAGE CLEARED</div>
+            <div id="stageClearSub" class="overlay-text">Nice.</div>
+            <div class="row">
+              <button id="btnShop" class="btn-solid">SHOP</button>
+              <button id="btnNextStage" class="btn-solid">NEXT STAGE</button>
+              <button id="btnClearRestart" class="btn-outline">RESTART STAGE</button>
             </div>
+            <div class="overlay-text small">Shop is available once per stage (after clearing).</div>
           </div>
         </div>
 
-        <!-- SHOP -->
+        <!-- Shop -->
         <div id="shopOverlay" class="overlay hidden">
-          <div class="panel">
-            <div class="hdr"><h2>SHOP</h2><div class="small">Coins: <span id="shopCoins">0</span></div></div>
-            <div class="body">
-              <div class="small">Edgar: “Spend your coins wisely.”</div>
-              <div id="shopList"></div>
-              <div class="btnrow">
-                <button id="btnShopBack" class="btn-solid">Back</button>
+          <div class="overlay-card wide">
+            <div class="shop-header">
+              <div class="shop-left">
+                <img id="shopkeeperImg" class="shopkeeper" alt="Edgar" />
+                <div>
+                  <div class="overlay-title">SHOP</div>
+                  <div class="overlay-text small">Edgar: “Spend your coins wisely.”</div>
+                </div>
+              </div>
+              <div class="shop-right">
+                <div class="overlay-text"><span class="mono">Coins:</span> <span id="shopCoins">0</span></div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- LOADING -->
-        <div id="loadingOverlay" class="overlay hidden">
-          <div class="panel">
-            <div class="hdr"><h2>LOADING NEXT STAGE</h2><div class="small">Generating safely…</div></div>
-            <div class="body">
-              <div class="small">This delay gives time to build a playable next stage.</div>
-              <div class="loadbar"><div id="loadingFill" class="loadfill"></div></div>
+            <div id="shopList" class="shop-list"></div>
+
+            <div class="row">
+              <button id="btnShopBack" class="btn-outline">BACK</button>
+              <div class="overlay-text small">Leaving the shop consumes your 1 shop visit for this stage.</div>
             </div>
           </div>
         </div>
 
-      </div>
-
-      <div class="hud">
-        <div class="hud-left">
-          <div class="pill" id="hudStage">Level: 1</div>
-          <div class="pill" id="hudCoins">Coins: 0</div>
-          <div class="pill" id="hudDash">Dash: Locked</div>
-          <div class="pill" id="hudSpeed">Speed: Normal</div>
-          <div class="pill" id="hudThrow">Throw: Ready</div>
+        <!-- Loading -->
+        <div id="loadingOverlay" class="overlay hidden">
+          <div class="overlay-card">
+            <div class="overlay-title">LOADING NEXT STAGE…</div>
+            <div class="loading-bar">
+              <div id="loadingFill" class="loading-fill"></div>
+            </div>
+            <div class="overlay-text small">Generating the next map…</div>
+          </div>
         </div>
+
       </div>
 
-      <div class="footer">Made with HTML Canvas · Hosted on GitHub Pages</div>
-    </div>
+      <!-- HUD pills (bottom left) -->
+      <div class="hud">
+        <div id="hudStage" class="pill">Level: 1</div>
+        <div id="hudCoins" class="pill">Coins: 0</div>
+        <div id="hudDash" class="pill">Dash: Locked</div>
+        <div id="hudSpeed" class="pill">Speed: Normal</div>
+        <div id="hudThrow" class="pill">Throw: Ready</div>
+      </div>
+
+      <footer class="footer">Made with HTML Canvas · Hosted on GitHub Pages</footer>
+    </main>
   </div>
 
-  <!-- IMPORTANT: filename must match EXACTLY main.js (case-sensitive on GitHub Pages) -->
   <script src="main.js"></script>
 </body>
 </html>
