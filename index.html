@@ -1,163 +1,143 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cellular Platformer</title>
 
-  <!-- Pixel font (fallbacks included) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- 8-bit-ish font -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <div class="app">
+  <div class="page">
     <header class="topbar">
-      <div class="brand">Pixel Platformer</div>
+      <div class="brand">CELLULAR PLATFORMER</div>
       <div class="controls">
         Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
       </div>
     </header>
 
     <div class="frame">
-      <div class="canvas-wrap">
-        <canvas id="game" width="1600" height="720"></canvas>
+      <canvas id="game" width="1280" height="720"></canvas>
 
-        <!-- ✅ BOOT LOADER (shows BEFORE anything else) -->
-        <div id="bootOverlay" class="overlay">
-          <div class="boot-card">
-            <div class="boot-title">CELLULAR PLATFORM</div>
-            <div id="bootSub" class="boot-sub">Loading assets…</div>
-
-            <div class="boot-bar">
-              <div id="bootFill" class="boot-fill" style="width:0%"></div>
-            </div>
-
-            <div id="bootPct" class="boot-pct">0%</div>
-
-            <div class="boot-hint">
-              Tip: On GitHub Pages, file names are case-sensitive.<br/>
-              Assets must be in <span class="mono">/assets</span>.
-            </div>
+      <!-- BOOT LOADER (loads assets before menu) -->
+      <div id="bootOverlay" class="overlay">
+        <div class="panel">
+          <div class="title">CELLULAR PLATFORMER</div>
+          <div class="sub">Loading assets…</div>
+          <div class="bar">
+            <div id="bootFill" class="fill" style="width:0%"></div>
           </div>
+          <div id="bootText" class="mono">0%</div>
+          <div id="bootHint" class="hint mono">If stuck: check /assets names (case-sensitive)</div>
         </div>
+      </div>
 
-        <!-- Main Menu -->
-        <div id="menu" class="overlay hidden">
-          <div class="panel">
-            <div class="panel-title">CHOOSE YOUR CHARACTER</div>
+      <!-- MENU / CHARACTER SELECT -->
+      <div id="menu" class="overlay hidden">
+        <div class="panel wide">
+          <div class="title">CHOOSE YOUR CHARACTER</div>
+          <div class="sub mono">Pick one, then Start.</div>
 
-            <div id="charGrid" class="char-grid"></div>
+          <div id="charGrid" class="char-grid"></div>
 
-            <div class="panel-actions">
-              <button id="btnStart" class="btn-solid" disabled>START</button>
-              <div class="small-note">
-                Assets must be in <span class="mono">/assets</span>.
-              </div>
-            </div>
+          <div class="row">
+            <button id="btnStart" class="btn primary" disabled>START</button>
           </div>
+
+          <div class="hint mono">Assets must be in <b>/assets</b>.</div>
         </div>
+      </div>
 
-        <!-- Tutorial (Stage 1) -->
-        <div id="tutorialBox" class="tutorial hidden">
-          <div class="tutorial-title">HOW TO PLAY</div>
-          <div id="tutMove" class="tutorial-line">□ Move: A / D or ← / →</div>
-          <div id="tutJump" class="tutorial-line">□ Jump: Space</div>
-          <div id="tutThrow" class="tutorial-line">□ Throw: F</div>
-          <div class="tutorial-note">Complete the checks to hide this overlay.</div>
-        </div>
+      <!-- Tutorial overlay -->
+      <div id="tutorialBox" class="tutorial hidden">
+        <div class="t-title">HOW TO PLAY</div>
+        <div class="t-line"><span id="tutMove" class="check">□</span> Move: A/D or ←/→</div>
+        <div class="t-line"><span id="tutJump" class="check">□</span> Jump: Space</div>
+        <div class="t-line"><span id="tutThrow" class="check">□</span> Throw: F</div>
+        <div class="t-sub mono">Complete the checks to hide this.</div>
+      </div>
 
-        <!-- Pause -->
-        <div id="pauseOverlay" class="overlay hidden">
-          <div class="panel">
-            <div class="panel-title">PAUSED</div>
-            <div class="panel-actions">
-              <button id="btnResume" class="btn-solid">Resume</button>
-              <button id="btnRestart" class="btn-outline">Restart Stage</button>
-              <button id="btnBackMenu" class="btn-outline">Back to Menu</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage Clear -->
-        <div id="stageClearOverlay" class="overlay hidden">
-          <div class="panel">
-            <div id="stageClearTitle" class="panel-title">STAGE CLEARED</div>
-            <div id="stageClearSub" class="panel-sub">Nice.</div>
-
-            <div class="panel-actions">
-              <button id="btnShop" class="btn-solid">Shop</button>
-              <button id="btnNextStage" class="btn-solid">Next Stage</button>
-              <button id="btnClearRestart" class="btn-outline">Restart</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Shop -->
-        <div id="shopOverlay" class="overlay hidden">
-          <div class="shop-panel">
-            <div class="shop-header">
-              <div class="shop-title">SHOP</div>
-              <div class="shop-sub">Edgar: “Spend your coins wisely.”</div>
-            </div>
-
-            <div class="shop-body">
-              <div class="shop-left">
-                <img id="shopkeeperImg" class="shopkeeper" alt="Edgar" />
-              </div>
-
-              <div class="shop-right">
-                <div class="shop-coins mono">Coins: <span id="shopCoins">0</span></div>
-                <div id="shopList" class="shop-list"></div>
-              </div>
-            </div>
-
-            <div class="panel-actions">
-              <button id="btnShopBack" class="btn-solid">Back</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage Loading (between stages) -->
-        <div id="loadingOverlay" class="overlay hidden">
-          <div class="boot-card">
-            <div class="boot-title">LOADING NEXT STAGE</div>
-            <div class="boot-sub">Generating platforms…</div>
-
-            <div class="boot-bar">
-              <div id="loadingFill" class="boot-fill" style="width:0%"></div>
-            </div>
-
-            <div class="boot-pct">Please wait…</div>
+      <!-- Pause overlay -->
+      <div id="pauseOverlay" class="overlay hidden">
+        <div class="panel">
+          <div class="title">PAUSED</div>
+          <div class="row">
+            <button id="btnResume" class="btn primary">RESUME</button>
+            <button id="btnRestart" class="btn">RESTART STAGE</button>
+            <button id="btnBackMenu" class="btn">MAIN MENU</button>
           </div>
         </div>
       </div>
 
-      <!-- HUD -->
+      <!-- Stage clear overlay -->
+      <div id="stageClearOverlay" class="overlay hidden">
+        <div class="panel">
+          <div id="stageClearTitle" class="title">STAGE CLEARED</div>
+          <div id="stageClearSub" class="sub mono">Shop available once per stage.</div>
+          <div class="row">
+            <button id="btnShop" class="btn primary">SHOP</button>
+            <button id="btnNextStage" class="btn">NEXT STAGE</button>
+            <button id="btnClearRestart" class="btn">RESTART</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shop overlay -->
+      <div id="shopOverlay" class="overlay hidden">
+        <div class="panel wide">
+          <div class="shop-head">
+            <img id="shopkeeperImg" class="shopkeeper" alt="Edgar" />
+            <div>
+              <div class="title">SHOP</div>
+              <div class="sub mono">Edgar: “Spend your coins wisely.”</div>
+              <div class="mono">Coins: <span id="shopCoins">0</span></div>
+              <div class="hint mono">Shop is available once per stage (after clearing).</div>
+            </div>
+          </div>
+
+          <div id="shopList" class="shop-list"></div>
+
+          <div class="row right">
+            <button id="btnShopBack" class="btn primary">BACK</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Next-stage loading bar (5–10 sec) -->
+      <div id="loadingOverlay" class="overlay hidden">
+        <div class="panel">
+          <div class="title">LOADING NEXT STAGE</div>
+          <div class="bar">
+            <div id="loadingFill" class="fill" style="width:0%"></div>
+          </div>
+          <div class="sub mono">Generating platforms…</div>
+        </div>
+      </div>
+
+      <!-- HUD (bottom left) -->
       <div class="hud">
-        <div class="hud-left">
-          <span id="hudStage" class="pill">Level: 1</span>
-          <span id="hudCoins" class="pill">Coins: 0</span>
-          <span id="hudDash" class="pill">Dash: Locked</span>
-          <span id="hudSpeed" class="pill">Speed: Normal</span>
-          <span id="hudThrow" class="pill">Throw: Ready</span>
-        </div>
-
-        <div class="hud-right">
-          <div class="hp">
-            <span class="hp-label">HP</span>
-            <div id="hpBlocks" class="hp-blocks"></div>
-          </div>
-        </div>
+        <div id="hudStage" class="pill">Level: 1</div>
+        <div id="hudCoins" class="pill">Coins: 0</div>
+        <div id="hudDash" class="pill">Dash: Locked</div>
+        <div id="hudSpeed" class="pill">Speed: Normal</div>
+        <div id="hudThrow" class="pill">Throw: Ready</div>
       </div>
 
-      <footer class="footer">Made with HTML Canvas · Hosted on GitHub Pages</footer>
+      <!-- Player HP (top right) -->
+      <div class="hp-hud">
+        <div class="hp-label">HP</div>
+        <div id="hpBlocks" class="hp-blocks"></div>
+      </div>
     </div>
+
+    <footer class="foot mono">Made with HTML Canvas · Hosted on GitHub Pages</footer>
   </div>
 
-  <script src="main.js"></script>
+  <script src="main.js" defer></script>
 </body>
 </html>
