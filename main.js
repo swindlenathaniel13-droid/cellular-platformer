@@ -114,16 +114,30 @@
     return Math.max(target, cur - maxDelta);
   }
 
+  function formatTimeSec(sec) {
+    sec = Math.max(0, sec);
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.floor((sec - Math.floor(sec)) * 10); // tenths
+    return `${m}:${String(s).padStart(2, "0")}.${ms}`;
+  }
+
   // =========================
   // Input
   // =========================
   const keys = new Set();
 
   window.addEventListener("keydown", (e) => {
-    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space","ShiftLeft","KeyA","KeyD","KeyF","Escape"].includes(e.code)) {
+    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space","Enter","ShiftLeft","KeyA","KeyD","KeyF","Escape"].includes(e.code)) {
       e.preventDefault();
     }
     keys.add(e.code);
+
+    // Stage results: Space/Enter continues immediately
+    if (GAME.mode === "STAGE_RESULTS" && (e.code === "Space" || e.code === "Enter")) {
+      proceedFromStageResults();
+      return;
+    }
 
     if (e.code === "Escape") togglePause();
   });
@@ -139,7 +153,6 @@
   const FLOOR_Y = 640;
   const PLATFORM_H = 40;
 
-  // smoother movement
   const MOVE_ACCEL = 2600;
   const MOVE_DECEL = 3200;
 
@@ -153,8 +166,6 @@
     dashV: 860,
     dashTime: 0.13,
     throwCd: 0.35,
-
-    // baseline run stats
     baseMaxHp: 10,
     baseThrowDmg: 18,
   };
@@ -175,7 +186,7 @@
   // Game State
   // =========================
   const GAME = {
-    mode: "BOOT", // BOOT, SELECT, PLAY, PAUSE, SHOP, TRANSITION
+    mode: "BOOT", // BOOT, SELECT, PLAY, PAUSE, SHOP, STAGE_RESULTS, TRANSITION
     level: 1,
     worldW: 2600,
     camX: 0,
@@ -194,12 +205,20 @@
 
     exit: { x: 0, y: 0, w: 110, h: 160 },
 
-    // tutorial persistence: once completed, never show again
     tutorialDone: (localStorage.getItem("cp_tutorialDone") === "1"),
 
     // death sequence
     deathPending: false,
     deathTimer: 0,
+
+    // per-stage stats
+    stageStartMs: 0,
+    stageCoinsStart: 0,
+    stageDamageTaken: 0,
+
+    // results screen
+    resultsTimer: 0,
+    resultsData: null, // { level, coins, dmg, timeSec }
 
     player: {
       w: BASE_PLAYER.w,
@@ -251,6 +270,10 @@
     (m === "PAUSE") ? show(pauseOverlay) : hide(pauseOverlay);
     (m === "SHOP") ? show(shopOverlay) : hide(shopOverlay);
     (m === "TRANSITION") ? show(transitionOverlay) : hide(transitionOverlay);
+
+    // Stage results overlay is dynamic
+    ensureStageResultsOverlay();
+    (m === "STAGE_RESULTS") ? show(stageResultsOverlay) : hide(stageResultsOverlay);
   }
 
   function pill(text) {
@@ -303,6 +326,7 @@
     confirmBody = document.createElement("div");
     confirmBody.className = "panel-sub";
     confirmBody.style.marginTop = "10px";
+    confirmBody.style.whiteSpace = "pre-line";
     confirmBody.style.lineHeight = "1.7";
 
     const row = document.createElement("div");
@@ -332,7 +356,6 @@
     panel.appendChild(row);
     confirmOverlay.appendChild(panel);
 
-    // put it over the stage if possible
     const stage = document.querySelector(".stage") || document.body;
     stage.appendChild(confirmOverlay);
   }
@@ -357,6 +380,121 @@
 
   function isConfirmOpen() {
     return !!confirmOverlay && confirmOverlay.classList.contains("show");
+  }
+
+  // =========================
+  // STAGE RESULTS Overlay (dynamic)
+  // =========================
+  let stageResultsOverlay = null;
+  let srTitle = null;
+  let srSub = null;
+  let srGrid = null;
+  let srHint = null;
+
+  function ensureStageResultsOverlay() {
+    if (stageResultsOverlay) return;
+
+    stageResultsOverlay = document.createElement("div");
+    stageResultsOverlay.className = "overlay";
+    stageResultsOverlay.id = "stageResultsOverlay";
+
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    panel.style.maxWidth = "780px";
+
+    srTitle = document.createElement("div");
+    srTitle.className = "panel-title big";
+    srTitle.textContent = "STAGE COMPLETE";
+
+    srSub = document.createElement("div");
+    srSub.className = "panel-sub";
+    srSub.style.marginTop = "8px";
+    srSub.style.whiteSpace = "pre-line";
+    srSub.textContent = "Uploading results to the cell towers…";
+
+    srGrid = document.createElement("div");
+    srGrid.style.marginTop = "14px";
+    srGrid.style.display = "grid";
+    srGrid.style.gridTemplateColumns = "1fr 1fr 1fr";
+    srGrid.style.gap = "10px";
+
+    srHint = document.createElement("div");
+    srHint.className = "panel-sub";
+    srHint.style.marginTop = "14px";
+    srHint.style.opacity = "0.9";
+    srHint.textContent = "Press Space/Enter to continue";
+
+    panel.appendChild(srTitle);
+    panel.appendChild(srSub);
+    panel.appendChild(srGrid);
+    panel.appendChild(srHint);
+
+    stageResultsOverlay.appendChild(panel);
+
+    const stage = document.querySelector(".stage") || document.body;
+    stage.appendChild(stageResultsOverlay);
+  }
+
+  function makeStatCard(label, value) {
+    const box = document.createElement("div");
+    box.style.border = "1px solid rgba(255,255,255,0.14)";
+    box.style.borderRadius = "14px";
+    box.style.padding = "12px 12px";
+    box.style.background = "rgba(0,0,0,0.25)";
+
+    const a = document.createElement("div");
+    a.style.fontFamily = '"Press Start 2P", monospace';
+    a.style.fontSize = "10px";
+    a.style.opacity = "0.9";
+    a.textContent = label;
+
+    const b = document.createElement("div");
+    b.style.marginTop = "10px";
+    b.style.fontFamily = '"Press Start 2P", monospace';
+    b.style.fontSize = "16px";
+    b.textContent = value;
+
+    box.appendChild(a);
+    box.appendChild(b);
+    return box;
+  }
+
+  function openStageResults() {
+    ensureStageResultsOverlay();
+
+    const now = performance.now();
+    const timeSec = (now - GAME.stageStartMs) / 1000;
+    const coinsStage = Math.max(0, GAME.player.coins - GAME.stageCoinsStart);
+    const dmgStage = Math.max(0, GAME.stageDamageTaken);
+
+    GAME.resultsData = {
+      level: GAME.level,
+      coins: coinsStage,
+      dmg: dmgStage,
+      timeSec
+    };
+
+    // Fill UI
+    srTitle.textContent = `STAGE ${GAME.level} COMPLETE`;
+    srSub.textContent = "Signal locked.\nPreparing next stage…";
+
+    srGrid.innerHTML = "";
+    srGrid.appendChild(makeStatCard("COINS", String(coinsStage)));
+    srGrid.appendChild(makeStatCard("DAMAGE", String(dmgStage)));
+    srGrid.appendChild(makeStatCard("TIME", formatTimeSec(timeSec)));
+
+    srHint.textContent = "Press Space/Enter to continue";
+
+    // Quick arcade delay (auto-continue)
+    GAME.resultsTimer = 1.6; // short + snappy
+    setMode("STAGE_RESULTS");
+  }
+
+  function proceedFromStageResults() {
+    if (GAME.mode !== "STAGE_RESULTS") return;
+    GAME.resultsTimer = 0;
+    setMode("TRANSITION");
+    beginTransitionToNextLevel();
   }
 
   // =========================
@@ -413,7 +551,6 @@
     if (GAME.mode === "PAUSE") setMode("PLAY");
   });
 
-  // Change label so it matches behavior (restart run)
   if (btnRestart) btnRestart.textContent = "Restart Run";
 
   btnRestart?.addEventListener("click", () => {
@@ -433,8 +570,8 @@
   });
 
   function togglePause() {
-    // don't let ESC interfere with confirm/death sequences
-    if (GAME.deathPending || isConfirmOpen()) return;
+    // don't let ESC interfere with confirm/death/results/transition
+    if (GAME.deathPending || isConfirmOpen() || GAME.mode === "STAGE_RESULTS" || GAME.mode === "TRANSITION") return;
 
     if (GAME.mode === "PLAY") setMode("PAUSE");
     else if (GAME.mode === "PAUSE") setMode("PLAY");
@@ -590,7 +727,6 @@
     GAME.exit.x = GAME.worldW - 240;
     GAME.exit.y = FLOOR_Y - GAME.exit.h;
 
-    // Always-completable stair path
     let x = 420;
     let y = 520;
 
@@ -614,13 +750,11 @@
       GAME.platforms.push(plat);
       path.push(plat);
 
-      // Coins
       const cN = 2 + Math.floor(rng() * 4);
       for (let c = 0; c < cN; c++) {
         GAME.pickups.push({ kind: "coin", x: x + 60 + c * 90, y: y - 46, w: 24, h: 24, value: 1 });
       }
 
-      // Enemies spawn on platform
       if (i > 0 && rng() < 0.55) {
         const type = rng() < 0.6 ? "enemy1" : "enemy2";
         GAME.enemies.push({
@@ -640,12 +774,10 @@
         });
       }
 
-      // powerups
       if (level >= 2 && rng() < 0.18) GAME.pickups.push({ kind: "dash", x: x + w * 0.5, y: y - 54, w: 36, h: 36 });
       if (level >= 3 && rng() < 0.16) GAME.pickups.push({ kind: "speed", x: x + w * 0.72, y: y - 54, w: 36, h: 36 });
     }
 
-    // flag unlocks exit
     const last = path.length ? path[path.length - 1] : { x: 720, y: 520, w: 640, h: PLATFORM_H };
     if (!path.length) GAME.platforms.push(last);
 
@@ -656,22 +788,25 @@
 
     resetPlayerPos(120, FLOOR_Y - BASE_PLAYER.h);
 
-    // ✅ tutorial only shows once EVER (even when returning to level 1)
     if (tutorialOverlay) {
       if (level === 1 && !GAME.tutorialDone) tutorialOverlay.classList.remove("hidden");
       else tutorialOverlay.classList.add("hidden");
     }
 
+    // ✅ start per-stage stats NOW
+    GAME.stageStartMs = performance.now();
+    GAME.stageCoinsStart = GAME.player.coins;
+    GAME.stageDamageTaken = 0;
+
     updateHUD();
   }
 
   // =========================
-  // Run reset rules (NEW)
+  // Run reset rules
   // =========================
   function resetRunProgress() {
     const p = GAME.player;
 
-    // keep chosen character + tutorialDone, wipe everything else
     p.maxHp = BASE_PLAYER.baseMaxHp;
     p.hp = BASE_PLAYER.baseMaxHp;
     p.coins = 0;
@@ -689,6 +824,11 @@
     p.dashCd = 0;
     p.dashT = 0;
     p.speedMult = 1;
+
+    // also reset stage stats
+    GAME.stageStartMs = performance.now();
+    GAME.stageCoinsStart = 0;
+    GAME.stageDamageTaken = 0;
   }
 
   function restartRun(toastMsg = "Run restarted") {
@@ -774,10 +914,14 @@
     moveAndCollide(p, dt);
     p.x = clamp(p.x, 0, GAME.worldW - p.w);
 
-    // falling damage (never kills instantly — but can)
+    // falling damage
     if (p.y > VIEW_H + 400) {
       const dmg = Math.max(1, 1 - p.armor);
       p.hp = Math.max(0, p.hp - dmg);
+
+      // ✅ count stage damage taken
+      GAME.stageDamageTaken += dmg;
+
       resetPlayerPos(120, FLOOR_Y - BASE_PLAYER.h);
       setToast(`Fell! -${dmg} HP`, 1.2);
       updateHUD();
@@ -829,6 +973,10 @@
         if (p.iT <= 0) {
           p.hp = Math.max(0, p.hp - dmg);
           p.iT = 0.6;
+
+          // ✅ count stage damage taken
+          GAME.stageDamageTaken += dmg;
+
           setToast(`Ouch! -${dmg}`, 0.7);
           updateHUD();
         }
@@ -920,7 +1068,9 @@
 
     if (!GAME.stageCleared) {
       GAME.stageCleared = true;
-      beginTransitionToNextLevel();
+
+      // ✅ NEW: show Stage Complete results screen first
+      openStageResults();
     }
   }
 
@@ -942,7 +1092,10 @@
   let genDone = false;
 
   function beginTransitionToNextLevel() {
+    // We may already be in TRANSITION mode from proceedFromStageResults,
+    // but keep this safe.
     setMode("TRANSITION");
+
     transT = 0;
     transPhase = 0;
     phaseT = 0;
@@ -988,7 +1141,7 @@
   }
 
   // =========================
-  // Death behavior (NEW)
+  // Death behavior
   // =========================
   function triggerDeathReset() {
     if (GAME.deathPending) return;
@@ -996,7 +1149,6 @@
     GAME.deathPending = true;
     GAME.deathTimer = 2.2;
 
-    // pause gameplay and show warning overlay
     setMode("PAUSE");
 
     openConfirm({
@@ -1181,11 +1333,10 @@
   function update(dt) {
     if (GAME.toastT > 0) GAME.toastT = Math.max(0, GAME.toastT - dt);
 
-    // ✅ death countdown runs even while paused/confirm is up
+    // death countdown runs even while paused/confirm is up
     if (GAME.deathPending) {
       GAME.deathTimer -= dt;
 
-      // update message countdown (nice touch)
       if (confirmBody) {
         const sec = Math.max(0, Math.ceil(GAME.deathTimer));
         confirmBody.textContent =
@@ -1202,6 +1353,13 @@
       return;
     }
 
+    // ✅ Stage Results countdown (auto-continue)
+    if (GAME.mode === "STAGE_RESULTS") {
+      GAME.resultsTimer -= dt;
+      if (GAME.resultsTimer <= 0) proceedFromStageResults();
+      return;
+    }
+
     if (GAME.mode === "TRANSITION") { updateTransition(dt); return; }
     if (GAME.mode !== "PLAY") return;
 
@@ -1212,7 +1370,6 @@
     handlePickups();
     handleExit();
 
-    // ✅ NEW death rule: HP 0 = reset run to Level 1 (with warning)
     if (GAME.player.hp <= 0) {
       triggerDeathReset();
       return;
@@ -1235,7 +1392,6 @@
   // Run control
   // =========================
   function startNewRun() {
-    // tutorial flag persists; everything else resets
     restartRun("Run started");
   }
 
