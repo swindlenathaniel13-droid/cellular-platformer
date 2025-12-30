@@ -2,103 +2,67 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cellular Platformer</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <div class="page">
-    <div class="topbar">
-      <div class="brand">Cellular Platformer</div>
-      <div class="controls">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
-    </div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="title">Cellular Platformer</div>
+      <div class="hint">Move: Left/Right or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
+    </header>
 
-    <div class="stage">
+    <main class="stage">
       <canvas id="game" width="1280" height="720"></canvas>
 
-      <!-- HUD Pills -->
-      <div id="hudLeft" class="hud hud-left"></div>
-      <div id="hudRight" class="hud hud-right"></div>
-
-      <!-- Boot / loading -->
-      <div id="bootOverlay" class="overlay show">
+      <!-- Boot / Loading -->
+      <div id="screenBoot" class="overlay show">
         <div class="panel">
-          <div class="panel-title big">CELLULAR PLATFORMER</div>
-          <div class="panel-sub">Loading assets…</div>
-          <div class="bar"><div id="bootBar" class="bar-fill"></div></div>
-          <div id="bootPct" class="panel-sub">0%</div>
+          <div class="panelTitle">CELLULAR PLATFORMER</div>
+          <div class="panelSub">Loading assets...</div>
+          <div class="progressOuter">
+            <div id="bootBar" class="progressInner" style="width:0%"></div>
+          </div>
+          <div id="bootPct" class="panelSmall">0%</div>
+          <div id="bootMsg" class="panelSmall muted">Tip: Assets must be inside /assets</div>
         </div>
       </div>
 
       <!-- Character Select -->
-      <div id="selectOverlay" class="overlay">
+      <div id="screenSelect" class="overlay">
         <div class="panel wide">
-          <div class="panel-title">CHOOSE YOUR CHARACTER</div>
-          <div class="panel-sub">Assets must be inside <span class="mono">/assets</span></div>
-          <div id="charRow" class="char-row"></div>
+          <div class="panelTitle">CHOOSE YOUR CHARACTER</div>
+          <div class="grid" id="charGrid"></div>
           <div class="row">
-            <button id="btnStart" class="btn" disabled>START</button>
+            <button id="btnStart" class="btn primary" disabled>Start</button>
           </div>
+          <div class="panelSmall muted">Playable: Gilly, Scott, Kevin, Nate. Edgar runs the shop.</div>
         </div>
       </div>
 
-      <!-- Tutorial overlay -->
-      <div id="tutorialOverlay" class="tutorial hidden">
-        <div class="panel tiny">
-          <div class="panel-title">HOW TO PLAY</div>
-          <label class="check"><input id="tMove" type="checkbox"> Move (A/D or ←/→)</label>
-          <label class="check"><input id="tJump" type="checkbox"> Jump (Space)</label>
-          <label class="check"><input id="tThrow" type="checkbox"> Throw (F)</label>
-          <div class="panel-sub">Complete all to hide this box.</div>
+      <!-- Touch Controls -->
+      <div id="touchControls" class="touch hidden">
+        <div class="touchLeft">
+          <button class="touchBtn" data-touch="left">◀</button>
+          <button class="touchBtn" data-touch="right">▶</button>
+        </div>
+        <div class="touchRight">
+          <button class="touchBtn" data-touch="jump">⤒</button>
+          <button class="touchBtn" data-touch="throw">F</button>
+          <button class="touchBtn" data-touch="dash">⇧</button>
         </div>
       </div>
+    </main>
 
-      <!-- Pause overlay -->
-      <div id="pauseOverlay" class="overlay">
-        <div class="panel">
-          <div class="panel-title">PAUSED</div>
-          <div class="panel-sub">Esc to resume</div>
-          <div class="row">
-            <button id="btnResume" class="btn">RESUME</button>
-            <button id="btnRestart" class="btn ghost">RESTART LEVEL</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Shop overlay -->
-      <div id="shopOverlay" class="overlay">
-        <div class="panel wide">
-          <div class="panel-title">SHOP</div>
-          <div class="panel-sub">Edgar: “Spend your coins wisely.”</div>
-          <div id="shopCoins" class="mono bigline">Coins: 0</div>
-          <div id="shopList" class="shop-list"></div>
-          <div class="row">
-            <button id="btnShopContinue" class="btn">CONTINUE</button>
-          </div>
-          <div class="panel-sub faint">Shop is available once per stage (after clearing).</div>
-        </div>
-      </div>
-
-      <!-- Transition overlay -->
-      <div id="transitionOverlay" class="overlay">
-        <div class="panel">
-          <div class="panel-title">LOADING NEXT STAGE</div>
-          <div class="bar"><div id="transBar" class="bar-fill"></div></div>
-          <div id="transText" class="panel-sub">0%</div>
-        </div>
-      </div>
-
-    </div>
-
-    <div class="footer">Made with HTML Canvas · Hosted on GitHub Pages</div>
+    <footer class="footer">
+      <div class="pill" id="hudLeft">Level: 1</div>
+      <div class="pill" id="hudMid">Coins: 0</div>
+      <div class="pill" id="hudRight">HP: 10/10</div>
+      <div class="muted footerText">Made with HTML Canvas · Hosted on GitHub Pages</div>
+    </footer>
   </div>
 
-  <script src="main.js"></script>
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>
