@@ -85,7 +85,6 @@
           if (done === entries.length) resolve();
         };
         img.onerror = () => {
-          // still count it so load doesn't hang
           console.warn("Missing asset:", img.src);
           done++;
           imgs[k] = img; // placeholder
@@ -181,12 +180,10 @@
     toastText: "",
     toastT: 0,
 
-    // stage controls
     exitLocked: true,
     stageCleared: false,
-    shopAvailable: false, // becomes true after stage clear (once)
+    shopAvailable: false,
 
-    // nav graph
     nav: /** @type {number[][]} */ ([]),
 
     platforms: /** @type {Array<{x:number,y:number,w:number,h:number}>} */ ([]),
@@ -198,21 +195,29 @@
     exit: { x: 0, y: 0, w: 96, h: 140 },
 
     player: {
+      // ✅ FIX #1: player must have w/h or physics + camera becomes NaN
+      w: PLAYER.w,
+      h: PLAYER.h,
+
       x: 120, y: FLOOR_Y - PLAYER.h,
       vx: 0, vy: 0,
       onGround: false,
       face: 1,
+
       hp: 10, maxHp: 10,
       iT: 0,
+
       coins: 0,
       hasDash: false,
       dashCd: 0,
       dashT: 0,
       dashDir: 1,
+
       speedMult: 1,
       throwCd: 0,
       throwDmg: 18,
-      charKey: "Nate", // chosen later
+
+      charKey: "Nate",
     }
   };
 
@@ -229,7 +234,6 @@
 
   function setMode(m) {
     GAME.mode = m;
-    // overlays
     if (m === "BOOT") show(bootOverlay); else hide(bootOverlay);
     if (m === "SELECT") show(selectOverlay); else hide(selectOverlay);
     if (m === "PAUSE") show(pauseOverlay); else hide(pauseOverlay);
@@ -326,46 +330,21 @@
   // Shop
   // =========================
   btnShopContinue.addEventListener("click", () => {
-    // exit shop, go play
     setMode("PLAY");
   });
 
   function openShop() {
-    GAME.shopAvailable = false; // one-time per stage
+    GAME.shopAvailable = false;
     setMode("SHOP");
 
     shopCoins.textContent = `Coins: ${GAME.player.coins}`;
     shopList.innerHTML = "";
 
     const items = [
-      {
-        id: "hpUp",
-        name: "+1 MAX HP",
-        price: 8,
-        desc: "More blocks in your HP bar. Retro toughness.",
-        buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; }
-      },
-      {
-        id: "throwUp",
-        name: "+ Throw Damage",
-        price: 10,
-        desc: "Home phone hits harder (because physics is optional).",
-        buy: () => { GAME.player.throwDmg += 4; }
-      },
-      {
-        id: "dashUnlock",
-        name: "Unlock Dash",
-        price: 12,
-        desc: "Enables Shift dash (short burst).",
-        buy: () => { GAME.player.hasDash = true; }
-      },
-      {
-        id: "speedBoost",
-        name: "Speed Boost",
-        price: 10,
-        desc: "Move faster for this stage.",
-        buy: () => { GAME.player.speedMult = 1.18; }
-      },
+      { name: "+1 MAX HP", price: 8, desc: "More blocks in your HP bar.", buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; } },
+      { name: "+ Throw Damage", price: 10, desc: "Home phone hits harder.", buy: () => { GAME.player.throwDmg += 4; } },
+      { name: "Unlock Dash", price: 12, desc: "Enables Shift dash.", buy: () => { GAME.player.hasDash = true; } },
+      { name: "Speed Boost", price: 10, desc: "Move faster for this stage.", buy: () => { GAME.player.speedMult = 1.18; } },
     ];
 
     for (const it of items) {
@@ -395,7 +374,6 @@
         it.buy();
         shopCoins.textContent = `Coins: ${GAME.player.coins}`;
         updateHUD();
-        // refresh buttons
         [...shopList.querySelectorAll("button")].forEach((b, idx) => {
           b.disabled = GAME.player.coins < items[idx].price;
         });
@@ -447,7 +425,6 @@
   }
 
   function findSupportPlatform(ent) {
-    // finds platform directly under feet (for nav id)
     const feet = { x: ent.x + 2, y: ent.y + ent.h + 2, w: ent.w - 4, h: 4 };
     for (let i = 0; i < GAME.platforms.length; i++) {
       if (rectsOverlap(feet, GAME.platforms[i])) return i;
@@ -475,7 +452,6 @@
   }
 
   function buildNavGraph() {
-    // platform jump constraints for AI
     const maxRise = 190;
     const maxDrop = 260;
     const maxDx = 320;
@@ -489,17 +465,13 @@
         if (i === j) continue;
         const b = GAME.platforms[j];
 
-        // from a to b: consider edge-to-edge dx
         const dxRight = b.x - (a.x + a.w);
         const dxLeft = a.x - (b.x + b.w);
         const dy = b.y - a.y;
 
-        // b to the right
         if (dxRight >= -40 && dxRight <= maxDx) {
           if (dy >= -maxRise && dy <= maxDrop) nav[i].push(j);
         }
-
-        // b to the left
         if (dxLeft >= -40 && dxLeft <= maxDx) {
           if (dy >= -maxRise && dy <= maxDrop) nav[i].push(j);
         }
@@ -515,6 +487,11 @@
 
   function resetPlayer(x, y) {
     const p = GAME.player;
+
+    // ✅ FIX #2: enforce w/h every time we reset (prevents NaN ever returning)
+    p.w = PLAYER.w;
+    p.h = PLAYER.h;
+
     p.x = x; p.y = y;
     p.vx = 0; p.vy = 0;
     p.onGround = false;
@@ -523,14 +500,14 @@
     p.throwCd = 0;
     p.dashCd = 0;
     p.dashT = 0;
-    p.speedMult = 1; // shop can override per stage, but we reset each new stage
+    p.speedMult = 1;
   }
 
   function makeEnemy(kind, platRect, isBoss = false) {
     if (isBoss) {
       return {
         kind: "boss",
-        bossType: kind, // "enemy1" or "enemy2"
+        bossType: kind,
         x: platRect.x + platRect.w * 0.65,
         y: platRect.y - BOSS.h,
         w: BOSS.w, h: BOSS.h,
@@ -539,7 +516,6 @@
         hp: BOSS.hpBase + (GAME.level * 8),
         maxHp: BOSS.hpBase + (GAME.level * 8),
         face: -1,
-        aiT: 0,
         state: "idle",
         atkCd: 1.2,
         slamCd: 2.3,
@@ -565,7 +541,6 @@
       thinkT: 0,
       meleeCd: 0,
       targetPlat: -1,
-      path: [],
       nextHop: -1,
     };
   }
@@ -579,40 +554,28 @@
     GAME.worldW = bossStage ? 2200 : (2600 + Math.min(1400, level * 220));
     addGround(GAME.worldW);
 
-    // Exit door placement (always within world)
     GAME.exit.w = 96;
     GAME.exit.h = 150;
     GAME.exit.x = GAME.worldW - 220;
     GAME.exit.y = FLOOR_Y - GAME.exit.h;
 
     if (bossStage) {
-      // Boss arena: big open space + a couple platforms
       const arena = { x: 520, y: 520, w: 820, h: PLATFORM_H };
       const mid = { x: 880, y: 420, w: 420, h: PLATFORM_H };
       const left = { x: 300, y: 460, w: 360, h: PLATFORM_H };
       GAME.platforms.push(arena, mid, left);
 
-      // Coins sprinkled
       for (let i = 0; i < 10; i++) {
-        GAME.pickups.push({
-          kind: "coin",
-          x: 520 + i * 140,
-          y: 320 + (i % 2) * 40,
-          w: 24, h: 24,
-          value: 1
-        });
+        GAME.pickups.push({ kind: "coin", x: 520 + i * 140, y: 320 + (i % 2) * 40, w: 24, h: 24, value: 1 });
       }
 
-      // Boss spawns on arena platform
       const boss = makeEnemy(rng() < 0.5 ? "enemy1" : "enemy2", arena, true);
       GAME.enemies.push(boss);
 
-      // Boss stage: exit locked until boss dead
       GAME.exitLocked = true;
       setToast("BOSS STAGE — defeat it to unlock the exit!", 3.0);
 
     } else {
-      // Normal stage: guaranteed path platforms + Signal Flag
       GAME.exitLocked = true;
 
       let x = 420;
@@ -626,9 +589,8 @@
 
       for (let i = 0; i < pathCount; i++) {
         const w = 340 + Math.floor(rng() * 260);
-
-        const dx = 230 + Math.floor(rng() * 70); // jumpable gaps
-        const dy = -70 + Math.floor(rng() * 140); // reachable vertical shifts
+        const dx = 230 + Math.floor(rng() * 70);
+        const dy = -70 + Math.floor(rng() * 140);
 
         x += dx;
         y = clamp(y + dy, minY, maxY);
@@ -639,19 +601,11 @@
         GAME.platforms.push(plat);
         path.push(plat);
 
-        // Coins
         const cN = 2 + Math.floor(rng() * 3);
         for (let c = 0; c < cN; c++) {
-          GAME.pickups.push({
-            kind: "coin",
-            x: x + 50 + c * 90,
-            y: y - 46,
-            w: 24, h: 24,
-            value: 1
-          });
+          GAME.pickups.push({ kind: "coin", x: x + 50 + c * 90, y: y - 46, w: 24, h: 24, value: 1 });
         }
 
-        // Enemies spawn on platforms (platform-aware)
         if (i > 0 && rng() < 0.58) {
           const type = rng() < 0.6 ? "enemy1" : "enemy2";
           const e = makeEnemy(type, plat, false);
@@ -662,48 +616,28 @@
           GAME.enemies.push(e);
         }
 
-        // Powerups occasionally
         if (level >= 2 && rng() < 0.18) {
-          GAME.pickups.push({
-            kind: "dash",
-            x: x + w * 0.5,
-            y: y - 54,
-            w: 36, h: 36
-          });
+          GAME.pickups.push({ kind: "dash", x: x + w * 0.5, y: y - 54, w: 36, h: 36 });
         }
         if (level >= 3 && rng() < 0.16) {
-          GAME.pickups.push({
-            kind: "speed",
-            x: x + w * 0.72,
-            y: y - 54,
-            w: 36, h: 36
-          });
+          GAME.pickups.push({ kind: "speed", x: x + w * 0.72, y: y - 54, w: 36, h: 36 });
         }
       }
 
-      // Safety: ensure path exists
       if (path.length === 0) {
         const plat = { x: 720, y: 520, w: 640, h: PLATFORM_H };
         GAME.platforms.push(plat);
         path.push(plat);
       }
 
-      // Signal Flag on last path platform
       const last = path[path.length - 1];
-      GAME.pickups.push({
-        kind: "flag",
-        x: last.x + last.w - 90,
-        y: last.y - 74,
-        w: 48, h: 74
-      });
+      GAME.pickups.push({ kind: "flag", x: last.x + last.w - 90, y: last.y - 74, w: 48, h: 74 });
 
       setToast("Exit locked — grab the Signal Flag!", 2.6);
     }
 
-    // Player start
     resetPlayer(120, FLOOR_Y - PLAYER.h);
 
-    // Tutorial stage 1
     if (level === 1) {
       tutorialOverlay.classList.remove("hidden");
       tMove.checked = false;
@@ -713,16 +647,15 @@
       tutorialOverlay.classList.add("hidden");
     }
 
-    // Build AI nav graph after platform list is final
     buildNavGraph();
-
-    // Update HUD
     updateHUD();
   }
 
   // =========================
-  // Enemy AI (platform-aware)
+  // Enemy / Boss / Player / Rendering / Loop
+  // (unchanged from previous version)
   // =========================
+
   function bfsNextHop(start, goal) {
     if (start < 0 || goal < 0) return -1;
     if (start === goal) return start;
@@ -737,7 +670,6 @@
         if (prev.has(nx)) continue;
         prev.set(nx, cur);
         if (nx === goal) {
-          // backtrack to find first hop
           let step = nx;
           let p = prev.get(step);
           while (p !== -1 && p !== start) {
@@ -755,34 +687,24 @@
   function updateEnemyAI(e, dt) {
     const p = GAME.player;
 
-    // gravity
     e.vy += GRAVITY * dt;
-
-    // cooldowns
     e.meleeCd = Math.max(0, (e.meleeCd || 0) - dt);
     e.thinkT = Math.max(0, (e.thinkT || 0) - dt);
 
-    // Update platform id if grounded
     if (e.onGround) e.platformId = findSupportPlatform(e);
     const playerPlat = findSupportPlatform(p);
 
     const dxToPlayer = (p.x + p.w / 2) - (e.x + e.w / 2);
     const dist = Math.abs(dxToPlayer);
 
-    // Smarter behavior:
-    // - If same platform: chase + melee
-    // - Else: use nav graph to move to next hop platform intentionally
-
     const is2 = e.kind === "enemy2";
     const speed = is2 ? ENEMY.speed2 : ENEMY.speed1;
     const jumpV = is2 ? ENEMY.jumpV2 : ENEMY.jumpV1;
 
     if (e.platformId === playerPlat && e.platformId >= 0) {
-      // chase
       e.face = dxToPlayer >= 0 ? 1 : -1;
       e.vx = e.face * speed;
 
-      // melee
       if (dist < ENEMY.aggro && dist < ENEMY.meleeRange && e.meleeCd <= 0) {
         if (p.iT <= 0) {
           p.hp = Math.max(0, p.hp - 1);
@@ -793,25 +715,20 @@
         e.meleeCd = ENEMY.meleeCd;
       }
     } else {
-      // different platforms: consider pathing when close enough or always on later levels
       const shouldAggro = dist < ENEMY.aggro || GAME.level >= 4;
 
       if (!shouldAggro) {
-        // patrol on current platform
         e.vx = e.face * speed * 0.7;
       } else {
-        // re-think path occasionally
         if (e.thinkT <= 0) {
           e.targetPlat = playerPlat;
           e.nextHop = bfsNextHop(e.platformId, playerPlat);
           e.thinkT = 0.35 + (is2 ? 0.12 : 0.18);
         }
 
-        // If no hop known, fall back to patrol-ish
         if (e.nextHop < 0 || e.platformId < 0) {
           e.vx = e.face * speed * 0.6;
         } else if (e.nextHop === e.platformId) {
-          // can't find better, move toward player x anyway
           e.face = dxToPlayer >= 0 ? 1 : -1;
           e.vx = e.face * speed * 0.7;
         } else {
@@ -821,18 +738,14 @@
           const goRight = (nextPlat.x + nextPlat.w / 2) > (curPlat.x + curPlat.w / 2);
           e.face = goRight ? 1 : -1;
 
-          // Move toward edge
           const edgeX = goRight ? (curPlat.x + curPlat.w - e.w - 6) : (curPlat.x + 6);
           const distToEdge = Math.abs(e.x - edgeX);
 
-          // stay on platform until we're intentionally leaving
           e.vx = e.face * speed;
 
-          // Clamp within platform while "approaching edge"
           if (distToEdge > 8) {
             e.x = clamp(e.x, curPlat.x + 4, curPlat.x + curPlat.w - e.w - 4);
           } else {
-            // at edge: decide jump or drop
             const dy = nextPlat.y - curPlat.y;
             const gap =
               goRight
@@ -845,18 +758,15 @@
               e.vy = jumpV;
               e.onGround = false;
             }
-            // for drop: do nothing special; walking off is intentional now
           }
         }
       }
 
-      // Patrol bounds if on a platform and not actively leaving it
       if (e.onGround && e.platformId >= 0) {
         const plat = GAME.platforms[e.platformId];
         const minX = e.patrolMin ?? (plat.x + 10);
         const maxX = e.patrolMax ?? (plat.x + plat.w - e.w - 10);
 
-        // If not in "pathing edge mode", keep them from falling off randomly
         if (dist > ENEMY.aggro * 0.9) {
           if (e.x < minX) { e.x = minX; e.face = 1; }
           if (e.x > maxX) { e.x = maxX; e.face = -1; }
@@ -864,28 +774,21 @@
       }
     }
 
-    // apply movement + collisions
     moveAndCollide(e, dt);
 
-    // if they hit patrol bounds, flip
     if (e.onGround) {
       if (e.x <= (e.patrolMin ?? -Infinity) + 1) e.face = 1;
       if (e.x >= (e.patrolMax ?? Infinity) - 1) e.face = -1;
     }
 
-    // clamp world
     e.x = clamp(e.x, 0, GAME.worldW - e.w);
     if (e.y > VIEW_H + 300) {
-      // fell out of world: respawn on ground
       e.y = FLOOR_Y - e.h;
       e.vy = 0;
       e.onGround = true;
     }
   }
 
-  // =========================
-  // Boss AI (patterns)
-  // =========================
   function spawnBossShot(x, y, vx, vy) {
     GAME.bossShots.push({ x, y, vx, vy, w: 10, h: 10, t: 5.0 });
   }
@@ -893,7 +796,6 @@
   function updateBoss(b, dt) {
     const p = GAME.player;
 
-    // gravity
     b.vy += GRAVITY * dt;
 
     b.atkCd = Math.max(0, b.atkCd - dt);
@@ -903,18 +805,10 @@
     const dx = (p.x + p.w/2) - (b.x + b.w/2);
     b.face = dx >= 0 ? 1 : -1;
 
-    // Simple boss brain:
-    // - close: charge
-    // - sometimes: jump slam
-    // - sometimes: shoot spread
     const dist = Math.abs(dx);
-
-    // movement base
     b.vx = b.face * BOSS.speed * (dist > 240 ? 1 : 0.7);
 
-    // charge hit
     if (dist < 90 && b.atkCd <= 0) {
-      // lunge
       b.vx = b.face * 520;
       b.atkCd = 1.0;
 
@@ -926,13 +820,11 @@
       }
     }
 
-    // slam
     if (b.slamCd <= 0 && dist < 520 && b.onGround) {
       b.vy = BOSS.jumpV;
       b.slamCd = 2.4;
     }
 
-    // shoot
     if (b.shootCd <= 0 && dist < 700) {
       const sx = b.x + b.w/2 + b.face * 30;
       const sy = b.y + b.h/2;
@@ -944,7 +836,6 @@
 
     moveAndCollide(b, dt);
 
-    // If boss touches player, hurt
     if (rectsOverlap(b, p) && p.iT <= 0) {
       p.hp = Math.max(0, p.hp - 1);
       p.iT = 0.55;
@@ -954,19 +845,14 @@
     b.x = clamp(b.x, 0, GAME.worldW - b.w);
   }
 
-  // =========================
-  // Player
-  // =========================
   function updatePlayer(dt) {
     const p = GAME.player;
 
-    // timers
     p.iT = Math.max(0, p.iT - dt);
     p.throwCd = Math.max(0, p.throwCd - dt);
     p.dashCd = Math.max(0, p.dashCd - dt);
     p.dashT = Math.max(0, p.dashT - dt);
 
-    // tutorial checks
     if (GAME.level === 1 && !tutorialOverlay.classList.contains("hidden")) {
       if (down("ArrowLeft","ArrowRight","KeyA","KeyD")) tMove.checked = true;
       if (down("Space")) tJump.checked = true;
@@ -974,14 +860,12 @@
       if (tMove.checked && tJump.checked && tThrow.checked) tutorialOverlay.classList.add("hidden");
     }
 
-    // dash
     if (p.hasDash && p.dashCd <= 0 && down("ShiftLeft") && p.dashT <= 0) {
       p.dashT = PLAYER.dashTime;
       p.dashDir = p.face;
       p.dashCd = 1.0;
     }
 
-    // movement
     const moveDir = (down("ArrowRight","KeyD") ? 1 : 0) + (down("ArrowLeft","KeyA") ? -1 : 0);
     if (moveDir !== 0) p.face = moveDir;
 
@@ -992,29 +876,23 @@
       p.vx = moveDir * baseSpeed;
     }
 
-    // gravity
     p.vy += GRAVITY * dt;
 
-    // jump
     if (down("Space") && p.onGround) {
       p.vy = PLAYER.jumpV;
       p.onGround = false;
     }
 
-    // move + collide
     moveAndCollide(p, dt);
 
-    // world clamp
     p.x = clamp(p.x, 0, GAME.worldW - p.w);
     if (p.y > VIEW_H + 400) {
-      // fell -> respawn with penalty
       p.hp = Math.max(1, p.hp - 1);
       resetPlayer(120, FLOOR_Y - PLAYER.h);
       setToast("Fell! -1 HP", 1.2);
       updateHUD();
     }
 
-    // throw
     if (down("KeyF") && p.throwCd <= 0) {
       p.throwCd = PLAYER.throwCd;
       const spd = 720;
@@ -1030,11 +908,7 @@
     }
   }
 
-  // =========================
-  // Projectiles
-  // =========================
   function updateProjectiles(dt) {
-    // player throws
     for (let i = GAME.projectiles.length - 1; i >= 0; i--) {
       const pr = GAME.projectiles[i];
       pr.t -= dt;
@@ -1042,7 +916,6 @@
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
 
-      // collide with platforms (bounce out)
       for (const plat of GAME.platforms) {
         if (rectsOverlap(pr, plat)) {
           pr.vx *= -0.25;
@@ -1052,7 +925,6 @@
         }
       }
 
-      // hit enemies
       for (const e of GAME.enemies) {
         if (e.hp <= 0) continue;
         if (rectsOverlap(pr, e)) {
@@ -1068,14 +940,12 @@
       }
     }
 
-    // boss shots
     for (let i = GAME.bossShots.length - 1; i >= 0; i--) {
       const s = GAME.bossShots[i];
       s.t -= dt;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
 
-      // hit player
       if (rectsOverlap(s, GAME.player) && GAME.player.iT <= 0) {
         GAME.player.hp = Math.max(0, GAME.player.hp - 1);
         GAME.player.iT = 0.6;
@@ -1090,9 +960,6 @@
     }
   }
 
-  // =========================
-  // Pickups + Exit
-  // =========================
   function handlePickups() {
     const p = GAME.player;
 
@@ -1147,9 +1014,6 @@
     }
   }
 
-  // =========================
-  // Transition (5 seconds)
-  // =========================
   let transT = 0;
   let transDur = 5.0;
   let nextLevelPrepared = false;
@@ -1162,12 +1026,10 @@
     transBar.style.width = "0%";
     transText.textContent = "0%";
 
-    // prepare next level immediately (so it’s ready by the end)
     GAME.level += 1;
     stageGenerate(GAME.level);
     nextLevelPrepared = true;
 
-    // shop becomes available after clearing the previous stage
     GAME.shopAvailable = true;
   }
 
@@ -1178,22 +1040,14 @@
     transText.textContent = `${Math.floor(pct * 100)}%`;
 
     if (pct >= 1) {
-      // after loading: open shop (once) then play
-      if (GAME.shopAvailable) {
-        openShop();
-      } else {
-        setMode("PLAY");
-      }
+      if (GAME.shopAvailable) openShop();
+      else setMode("PLAY");
     }
   }
 
-  // =========================
-  // Rendering
-  // =========================
   function drawBackground() {
     const bg = imgs.Background_Pic;
     if (bg && bg.complete && bg.naturalWidth) {
-      // cover-like draw
       const scale = Math.max(VIEW_W / bg.naturalWidth, VIEW_H / bg.naturalHeight);
       const dw = bg.naturalWidth * scale;
       const dh = bg.naturalHeight * scale;
@@ -1229,7 +1083,6 @@
       ctx.fillRect(x, y, GAME.exit.w, GAME.exit.h);
     }
 
-    // lock indicator
     if (GAME.exitLocked) {
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.fillRect(x, y - 28, 160, 22);
@@ -1322,7 +1175,6 @@
     const dx = ent.x - GAME.camX + (ent.w - drawW) / 2;
     const dy = ent.y + (ent.h - drawH);
     if (img && img.complete && img.naturalWidth) {
-      // face flip
       ctx.save();
       ctx.translate(dx + drawW / 2, dy + drawH / 2);
       ctx.scale(ent.face >= 0 ? 1 : -1, 1);
@@ -1337,51 +1189,40 @@
   function render(t) {
     const time = t / 1000;
 
-    // camera
     const p = GAME.player;
     GAME.camX = clamp(p.x + p.w / 2 - VIEW_W / 2, 0, Math.max(0, GAME.worldW - VIEW_W));
 
     drawBackground();
 
-    // platforms (skip huge ground draw to reduce visual clutter; still collides)
     for (let i = 1; i < GAME.platforms.length; i++) {
       drawPlatformRect(GAME.platforms[i]);
     }
-    // ground: draw as repeated platform for looks
     drawPlatformRect({ x: 0, y: FLOOR_Y, w: GAME.worldW, h: PLATFORM_H });
 
-    // pickups
     for (const it of GAME.pickups) drawPickup(it, time);
 
-    // exit
     drawExit();
 
-    // enemies
     for (const e of GAME.enemies) {
       if (e.hp <= 0) continue;
 
       if (e.kind === "boss") {
         drawEntitySprite(e.bossType === "enemy2" ? "Enemy2" : "Enemy1", e, BOSS.drawW, BOSS.drawH);
-        // boss hp bar top center
         drawHPBar(VIEW_W/2 - 90, 16, Math.ceil((e.hp / e.maxHp) * 10), 10, "BOSS");
       } else {
         const key = e.kind === "enemy2" ? "Enemy2" : "Enemy1";
         drawEntitySprite(key, e, ENEMY.drawW, ENEMY.drawH);
 
-        // enemy hp above head (small)
         const segs = 6;
         const hpSeg = Math.max(0, Math.ceil((e.hp / e.maxHp) * segs));
         drawHPBar((e.x - GAME.camX) - 8, e.y - 18, hpSeg, segs);
       }
     }
 
-    // player
     drawEntitySprite(GAME.player.charKey, GAME.player, PLAYER.drawW, PLAYER.drawH);
 
-    // player HP bottom right
     drawHPBar(VIEW_W - 190, VIEW_H - 50, GAME.player.hp, GAME.player.maxHp, "HP");
 
-    // projectiles
     for (const pr of GAME.projectiles) {
       const img = imgs.Weapon;
       const x = pr.x - GAME.camX;
@@ -1390,13 +1231,11 @@
       else { ctx.fillStyle="#fff"; ctx.fillRect(x,y,pr.w,pr.h); }
     }
 
-    // boss shots
     for (const s of GAME.bossShots) {
       ctx.fillStyle = "rgba(255,255,255,0.9)";
       ctx.fillRect(s.x - GAME.camX, s.y, s.w, s.h);
     }
 
-    // toast
     if (GAME.toastT > 0 && GAME.toastText) {
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -1409,9 +1248,6 @@
     }
   }
 
-  // =========================
-  // Main update loop
-  // =========================
   let lastT = performance.now();
 
   function update(dt) {
@@ -1423,14 +1259,11 @@
     }
     if (GAME.mode !== "PLAY") return;
 
-    // player
     updatePlayer(dt);
 
-    // enemies
     for (let i = GAME.enemies.length - 1; i >= 0; i--) {
       const e = GAME.enemies[i];
       if (e.hp <= 0) {
-        // if boss died -> unlock exit
         if (e.kind === "boss") {
           GAME.exitLocked = false;
           setToast("Boss defeated — Exit unlocked!", 2.2);
@@ -1443,16 +1276,10 @@
       else updateEnemyAI(e, dt);
     }
 
-    // projectiles
     updateProjectiles(dt);
-
-    // pickups
     handlePickups();
-
-    // exit
     handleExit();
 
-    // dead?
     if (GAME.player.hp <= 0) {
       setToast("GAME OVER — restarting level", 2.0);
       restartLevel();
@@ -1471,9 +1298,6 @@
     requestAnimationFrame(loop);
   }
 
-  // =========================
-  // Start / Restart
-  // =========================
   function startNewRun() {
     GAME.level = 1;
     GAME.player.hp = GAME.player.maxHp;
@@ -1485,7 +1309,6 @@
   }
 
   function restartLevel() {
-    // Keep player progression (coins, maxHp, dash unlock etc) but replay the stage
     const saved = {
       coins: GAME.player.coins,
       maxHp: GAME.player.maxHp,
@@ -1506,9 +1329,6 @@
     updateHUD();
   }
 
-  // =========================
-  // Boot sequence
-  // =========================
   async function boot() {
     setMode("BOOT");
     await loadAllImages((p) => {
@@ -1517,13 +1337,8 @@
       bootPct.textContent = `${pct}%`;
     });
 
-    // Build select UI
     buildCharSelect();
     setMode("SELECT");
-
-    // Wire pause overlay buttons
-    btnResume.onclick = () => { if (GAME.mode === "PAUSE") setMode("PLAY"); };
-    btnRestart.onclick = () => { if (GAME.mode === "PAUSE") { restartLevel(); setMode("PLAY"); } };
   }
 
   boot();
