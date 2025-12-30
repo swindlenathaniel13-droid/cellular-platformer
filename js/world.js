@@ -1,89 +1,93 @@
-import { aabb } from "./utils.js";
+import { CONFIG } from "./config.js";
+import { clamp, mulberry32 } from "./utils.js";
 
-function rectOverlap(a, b) {
-  return (
-    a.x < b.x + b.w &&
-    a.x + a.w > b.x &&
-    a.y < b.y + b.h &&
-    a.y + a.h > b.y
-  );
+function rect(x, y, w, h) {
+  return { x, y, w, h };
 }
 
-function resolveAxis(ent, solids, axis) {
-  for (const s of solids) {
-    if (!s.solid) continue;
-    if (!rectOverlap(ent, s)) continue;
+export function createWorld(levelIndex, runSeed) {
+  const rng = mulberry32((runSeed + levelIndex * 99991) >>> 0);
 
-    if (axis === "x") {
-      const midA = ent.x + ent.w / 2;
-      const midB = s.x + s.w / 2;
-      if (midA < midB) {
-        ent.x = s.x - ent.w;
-      } else {
-        ent.x = s.x + s.w;
-      }
-      ent.vx = 0;
-    } else {
-      const midA = ent.y + ent.h / 2;
-      const midB = s.y + s.h / 2;
-      if (midA < midB) {
-        // Landed on top
-        ent.y = s.y - ent.h;
-        ent.vy = 0;
-        ent.onGround = true;
-        ent._groundId = s._id ?? null;
-      } else {
-        // Hit head
-        ent.y = s.y + s.h;
-        ent.vy = 0;
-      }
-    }
+  const groundY = CONFIG.BASE_GROUND_Y;
+  const length = CONFIG.LEVEL_LENGTH + (levelIndex - 1) * 260;
+
+  // Ground (continuous)
+  const platforms = [rect(0, groundY, length, 64)];
+
+  // Build a “critical path” of platforms leading to the exit platform
+  const path = [];
+  let x = 260;
+  let yTop = groundY - 90; // first step
+
+  const yLevels = CONFIG.PATH_Y_LEVELS.slice();
+  // as levels rise, prefer higher platforms a bit more
+  const heightBias = clamp((levelIndex - 1) / 10, 0, 0.6);
+
+  while (x < length - 620) {
+    const step = CONFIG.PATH_STEP_X_MIN + rng() * (CONFIG.PATH_STEP_X_MAX - CONFIG.PATH_STEP_X_MIN);
+    x += step;
+
+    // choose yTop from levels
+    const pickHigh = rng() < heightBias;
+    const idx = pickHigh ? Math.floor(rng() * (yLevels.length - 1)) + 1 : Math.floor(rng() * 2);
+    yTop = clamp(yLevels[idx], 280, groundY - 40);
+
+    const w = 220 + Math.floor(rng() * 180);
+    const plat = rect(x, yTop, w, 34);
+    platforms.push(plat);
+    path.push(plat);
   }
-}
 
-export function moveAndCollide(ent, solids, dt) {
-  // Sub-step to prevent tunneling and jitter
-  const MAX_STEP = 1 / 120;
-  let remaining = dt;
+  // Goal platform near end (exit sits here)
+  const goalPlat = rect(length - 520, groundY - 200, 360, 34);
+  platforms.push(goalPlat);
 
-  ent.onGround = false;
-  ent._groundId = null;
+  // Add 2-3 “stair” platforms so goal is always reachable
+  platforms.push(rect(goalPlat.x - 260, groundY - 120, 200, 34));
+  platforms.push(rect(goalPlat.x - 420, groundY - 60, 220, 34));
 
-  while (remaining > 0) {
-    const step = Math.min(MAX_STEP, remaining);
-    remaining -= step;
-
-    // X
-    ent.x += ent.vx * step;
-    resolveAxis(ent, solids, "x");
-
-    // Y
-    ent.y += ent.vy * step;
-    resolveAxis(ent, solids, "y");
+  // Coins sprinkled on some platforms
+  const coins = [];
+  for (let i = 0; i < Math.min(10 + levelIndex * 2, 28); i++) {
+    const p = platforms[1 + Math.floor(rng() * (platforms.length - 1))];
+    const cx = p.x + 30 + rng() * (p.w - 60);
+    const cy = p.y - 26 - rng() * 16;
+    coins.push({ x: cx, y: cy, r: 14, collected: false });
   }
-}
 
-export function pointInSolid(x, y, solids) {
-  const p = { x, y, w: 1, h: 1 };
-  for (const s of solids) {
-    if (!s.solid) continue;
-    if (aabb(p, s)) return s;
-  }
-  return null;
-}
-
-export function getSupportRect(ent, solids, pad = 2) {
-  // Checks a tiny box under the feet
-  const probe = {
-    x: ent.x + pad,
-    y: ent.y + ent.h + 1,
-    w: Math.max(1, ent.w - pad * 2),
-    h: 2,
+  // Checkpoint flag (visible, not behind exit)
+  const checkpoint = {
+    x: goalPlat.x - 120,
+    y: goalPlat.y - 72,
+    w: 54,
+    h: 72
   };
-  for (const s of solids) {
-    if (!s.solid) continue;
-    if (aabb(probe, s)) return s;
-  }
-  return null;
-}
 
+  // Exit door sits fully on goal platform
+  const exitW = 92;
+  const exitH = 140;
+  const exit = {
+    x: goalPlat.x + goalPlat.w - exitW - 18,
+    y: goalPlat.y - exitH,
+    w: exitW,
+    h: exitH
+  };
+
+  // Spawn point
+  const spawn = { x: 90, y: groundY - CONFIG.PLAYER_H - 4 };
+
+  // Optional hazards (none for now; add later)
+  const hazards = [];
+
+  return {
+    length,
+    groundY,
+    platforms,
+    hazards,
+    coins,
+    checkpoint,
+    exit,
+    spawn,
+    goalPlat,
+  };
+}
