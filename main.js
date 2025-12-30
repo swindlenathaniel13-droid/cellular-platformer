@@ -1,1133 +1,1532 @@
 (() => {
   "use strict";
 
-  // ---------- Helpers ----------
-  const $ = (id) => document.getElementById(id);
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
-
-  function rectsOverlap(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  }
-
-  // ---------- DOM ----------
-  const canvas = $("game");
+  // =========================
+  // Canvas / View
+  // =========================
+  const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
 
-  const bootOverlay = $("bootOverlay");
-  const bootFill = $("bootFill");
-  const bootText = $("bootText");
-  const bootHint = $("bootHint");
+  const VIEW_W = canvas.width;   // 1280
+  const VIEW_H = canvas.height;  // 720
 
-  const menuEl = $("menu");
-  const charGridEl = $("charGrid");
-  const btnStart = $("btnStart");
+  // =========================
+  // DOM UI
+  // =========================
+  const bootOverlay = document.getElementById("bootOverlay");
+  const bootBar = document.getElementById("bootBar");
+  const bootPct = document.getElementById("bootPct");
 
-  const tutorialBox = $("tutorialBox");
-  const tutMove = $("tutMove");
-  const tutJump = $("tutJump");
-  const tutThrow = $("tutThrow");
+  const selectOverlay = document.getElementById("selectOverlay");
+  const charRow = document.getElementById("charRow");
+  const btnStart = document.getElementById("btnStart");
 
-  const pauseOverlay = $("pauseOverlay");
-  const btnResume = $("btnResume");
-  const btnRestart = $("btnRestart");
-  const btnBackMenu = $("btnBackMenu");
+  const tutorialOverlay = document.getElementById("tutorialOverlay");
+  const tMove = document.getElementById("tMove");
+  const tJump = document.getElementById("tJump");
+  const tThrow = document.getElementById("tThrow");
 
-  const stageClearOverlay = $("stageClearOverlay");
-  const stageClearTitle = $("stageClearTitle");
-  const stageClearSub = $("stageClearSub");
-  const btnShop = $("btnShop");
-  const btnNextStage = $("btnNextStage");
-  const btnClearRestart = $("btnClearRestart");
+  const pauseOverlay = document.getElementById("pauseOverlay");
+  const btnResume = document.getElementById("btnResume");
+  const btnRestart = document.getElementById("btnRestart");
 
-  const shopOverlay = $("shopOverlay");
-  const shopkeeperImg = $("shopkeeperImg");
-  const shopCoinsEl = $("shopCoins");
-  const shopList = $("shopList");
-  const btnShopBack = $("btnShopBack");
+  const shopOverlay = document.getElementById("shopOverlay");
+  const shopCoins = document.getElementById("shopCoins");
+  const shopList = document.getElementById("shopList");
+  const btnShopContinue = document.getElementById("btnShopContinue");
 
-  const loadingOverlay = $("loadingOverlay");
-  const loadingFill = $("loadingFill");
+  const transitionOverlay = document.getElementById("transitionOverlay");
+  const transBar = document.getElementById("transBar");
+  const transText = document.getElementById("transText");
 
-  const hudStage = $("hudStage");
-  const hudCoins = $("hudCoins");
-  const hudDash = $("hudDash");
-  const hudSpeed = $("hudSpeed");
-  const hudThrow = $("hudThrow");
+  const hudLeft = document.getElementById("hudLeft");
+  const hudRight = document.getElementById("hudRight");
 
-  const hpBlocksEl = $("hpBlocks");
+  // =========================
+  // Assets
+  // =========================
+  const ASSET_BASE = "assets/";
 
-  // ---------- Input ----------
+  // Names MUST match what's in your /assets folder (case sensitive)
+  const FILES = {
+    Background_Pic: "Background_Pic.png",
+    Platform: "Platform.png",
+    CheckpointFlag: "CheckpointFlag.png",
+    Coin: "Coin.png",
+    Edgar: "Edgar.png",
+    Enemy1: "Enemy1.png",
+    Enemy2: "Enemy2.png",
+    Exit_Door: "Exit_Door.png",
+    Gilly: "Gilly.png",
+    Kevin: "Kevin.png",
+    Nate: "Nate.png",
+    Powerup_Dash: "Powerup_Dash.png",
+    Powerup_Speedboost: "Powerup_Speedboost.png",
+    Scott: "Scott.png",
+    Weapon: "powerup_homephone.png",
+  };
+
+  /** @type {Record<string,HTMLImageElement>} */
+  const imgs = {};
+
+  function loadAllImages(onProgress) {
+    const entries = Object.entries(FILES);
+    let done = 0;
+
+    return new Promise((resolve) => {
+      for (const [k, filename] of entries) {
+        const img = new Image();
+        img.src = ASSET_BASE + filename;
+        img.onload = () => {
+          done++;
+          imgs[k] = img;
+          onProgress?.(done / entries.length);
+          if (done === entries.length) resolve();
+        };
+        img.onerror = () => {
+          // still count it so load doesn't hang
+          console.warn("Missing asset:", img.src);
+          done++;
+          imgs[k] = img; // placeholder
+          onProgress?.(done / entries.length);
+          if (done === entries.length) resolve();
+        };
+      }
+    });
+  }
+
+  // =========================
+  // RNG (seeded)
+  // =========================
+  function mulberry32(seed) {
+    let t = seed >>> 0;
+    return function () {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  // =========================
+  // Input
+  // =========================
   const keys = new Set();
   window.addEventListener("keydown", (e) => {
+    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space","ShiftLeft","KeyA","KeyD","KeyF","Escape"].includes(e.code)) {
+      e.preventDefault();
+    }
     keys.add(e.code);
-    if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
+
     if (e.code === "Escape") togglePause();
   });
   window.addEventListener("keyup", (e) => keys.delete(e.code));
-  const down = (code) => keys.has(code);
 
-  // ---------- Assets ----------
-  const ASSET_BASE = "assets/";
-  const FILES = {
-    Background: "Background_Pic.png",
-    Platform: "Platform.png",
-    Exit: "Exit_Door.png",
-    Coin: "Coin.png",
-    Enemy1: "Enemy1.png",
-    Enemy2: "Enemy2.png",
-    Weapon: "powerup_homephone.png",
-    Dash: "Powerup_Dash.png",
-    Speed: "Powerup_Speedboost.png",
-
-    Gilly: "Gilly.png",
-    Scott: "Scott.png",
-    Kevin: "Kevin.png",
-    Nate: "Nate.png",
-    Edgar: "Edgar.png",
-  };
-
-  const imgs = {};
-
-  function loadImage(path) {
-    return new Promise((resolve, reject) => {
-      const im = new Image();
-      im.onload = () => resolve(im);
-      im.onerror = () => reject(new Error("Failed to load: " + path));
-      im.src = path;
-    });
+  function down(...codes) {
+    return codes.some(c => keys.has(c));
   }
 
-  async function loadAllAssets(onProgress) {
-    const entries = Object.entries(FILES);
-    const total = entries.length;
-    let loaded = 0;
+  // =========================
+  // Game State / Constants
+  // =========================
+  const GRAVITY = 2000;
+  const FLOOR_Y = 640;     // ground top
+  const PLATFORM_H = 40;
 
-    const tasks = entries.map(async ([k, file]) => {
-      const im = await loadImage(ASSET_BASE + file);
-      imgs[k] = im;
-      loaded++;
-      if (onProgress) onProgress(loaded, total, k);
-    });
-
-    await Promise.all(tasks);
-    shopkeeperImg.src = imgs.Edgar.src;
-  }
-
-  // ---------- World / Physics ----------
-  const VIEW_W = canvas.width;
-  const VIEW_H = canvas.height;
-
-  const GROUND_Y = 640;
-
-  // The drawn platform height. Collider height is same (simple).
-  const PLATFORM_H = 48;
-
-  // ✅ Key fix: collider sizes separate from sprite draw sizes
-  const DRAW = {
-    playerScale: 1.65,  // tweak here (1.55–1.85)
-    enemyScale: 1.55,   // tweak here
-    exitScale: 2.10,
-
-    playerFootPad: 4,
-    enemyFootPad: 4,
-    exitFootPad: 4,
-    coinScale: 1.25,
-    weaponScale: 1.15,
+  const PLAYER = {
+    w: 44,
+    h: 64,
+    drawW: 84,
+    drawH: 84,
+    speed: 310,
+    jumpV: -930,
+    dashV: 820,
+    dashTime: 0.13,
+    throwCd: 0.35,
   };
 
-  const PHYS = {
-    gravity: 2400,
-    accel: 3400,
-    maxSpeed: 420,
-    jump: 1040,
-    friction: 0.82,
+  const ENEMY = {
+    baseW: 46,
+    baseH: 56,
+    drawW: 78,
+    drawH: 78,
+    speed1: 140,
+    speed2: 170,
+    jumpV1: -820,
+    jumpV2: -880,
+    aggro: 520,
+    meleeRange: 40,
+    meleeCd: 0.8,
   };
 
-  // ---------- Game State ----------
+  const BOSS = {
+    w: 80,
+    h: 90,
+    drawW: 130,
+    drawH: 130,
+    speed: 160,
+    jumpV: -920,
+    hpBase: 220,
+  };
+
   const GAME = {
-    mode: "boot", // boot -> menu -> play/paused/stageclear/shop/loading
-    stage: 1,
-    coins: 0,
-
-    dashUnlocked: false,
-    speedUnlocked: false,
-    shopUsedThisStage: false,
-
+    mode: "BOOT", // BOOT, SELECT, PLAY, PAUSE, SHOP, TRANSITION
+    level: 1,
     worldW: 2600,
     camX: 0,
 
-    platforms: [],
-    pickups: [],
-    enemies: [],
-    projectiles: [],
+    toastText: "",
+    toastT: 0,
 
-    exit: null,
-    exitLocked: false,
+    // stage controls
+    exitLocked: true,
+    stageCleared: false,
+    shopAvailable: false, // becomes true after stage clear (once)
 
-    loadingT: 0,
-    loadingDur: 8.0,
-    pendingStage: null,
+    // nav graph
+    nav: /** @type {number[][]} */ ([]),
 
-    tutorial: { move: false, jump: false, throw: false },
-  };
+    platforms: /** @type {Array<{x:number,y:number,w:number,h:number}>} */ ([]),
+    pickups: /** @type {Array<any>} */ ([]),
+    enemies: /** @type {Array<any>} */ ([]),
+    projectiles: /** @type {Array<any>} */ ([]),
+    bossShots: /** @type {Array<any>} */ ([]),
 
-  // Collider sizes (fit under platforms)
-  const player = {
-    char: "Nate",
-    x: 120,
-    y: GROUND_Y - 62,
-    w: 40,
-    h: 62,
-    vx: 0,
-    vy: 0,
-    onGround: false,
-    facing: 1,
-    hp: 8,
-    maxHp: 8,
-    invuln: 0,
-    dashCd: 0,
-    throwCd: 0,
-    landedT: 0,
-  };
+    exit: { x: 0, y: 0, w: 96, h: 140 },
 
-  function resetPlayer(x, y) {
-    player.x = x;
-    player.y = y;
-    player.vx = 0;
-    player.vy = 0;
-    player.onGround = false;
-    player.facing = 1;
-    player.hp = player.maxHp;
-    player.invuln = 0;
-    player.dashCd = 0;
-    player.throwCd = 0;
-    player.landedT = 0;
-  }
-
-  function makeEnemy(type, platformRef, isBoss = false) {
-    const is2 = type === "enemy2";
-    const e = {
-      type,
-      // will position below
-      x: 0,
-      y: 0,
-      w: is2 ? 48 : 44,
-      h: is2 ? 70 : 64,
-      vx: 0,
-      vy: 0,
+    player: {
+      x: 120, y: FLOOR_Y - PLAYER.h,
+      vx: 0, vy: 0,
       onGround: false,
-      facing: -1,
-
-      speed: is2 ? 160 : 150,
-      hp: is2 ? 6 : 4,
-      maxHp: is2 ? 6 : 4,
-      damage: 1,
-
-      platform: platformRef,       // ✅ anchored platform patrol
-      patrolMin: 0,
-      patrolMax: 0,
-
-      isBoss,
-      jumpCd: 0,
-
-      bobSeed: Math.random() * 10,
-    };
-
-    if (isBoss) {
-      e.hp = is2 ? 14 : 10;
-      e.maxHp = e.hp;
-      e.speed += 40;
-      e.damage = 2;
+      face: 1,
+      hp: 10, maxHp: 10,
+      iT: 0,
+      coins: 0,
+      hasDash: false,
+      dashCd: 0,
+      dashT: 0,
+      dashDir: 1,
+      speedMult: 1,
+      throwCd: 0,
+      throwDmg: 18,
+      charKey: "Nate", // chosen later
     }
+  };
 
-    return e;
+  // =========================
+  // UI helpers
+  // =========================
+  function show(el) { el.classList.add("show"); }
+  function hide(el) { el.classList.remove("show"); }
+
+  function setToast(msg, t = 2.2) {
+    GAME.toastText = msg;
+    GAME.toastT = t;
   }
 
-  // ---------- Collision ----------
-  function resolvePlatformCollisions(ent, dt) {
-    ent.onGround = false;
-
-    // X
-    ent.x += ent.vx * dt;
-    for (const p of GAME.platforms) {
-      if (rectsOverlap(ent, p)) {
-        if (ent.vx > 0) ent.x = p.x - ent.w;
-        else if (ent.vx < 0) ent.x = p.x + p.w;
-        ent.vx = 0;
-      }
-    }
-
-    // Y
-    ent.y += ent.vy * dt;
-    for (const p of GAME.platforms) {
-      if (rectsOverlap(ent, p)) {
-        if (ent.vy > 0) {
-          ent.y = p.y - ent.h;
-          ent.vy = 0;
-          ent.onGround = true;
-        } else if (ent.vy < 0) {
-          ent.y = p.y + p.h;
-          ent.vy = 0;
-        }
-      }
-    }
-
-    ent.x = clamp(ent.x, -200, GAME.worldW - ent.w + 200);
-    ent.y = clamp(ent.y, -1200, VIEW_H + 600);
+  function setMode(m) {
+    GAME.mode = m;
+    // overlays
+    if (m === "BOOT") show(bootOverlay); else hide(bootOverlay);
+    if (m === "SELECT") show(selectOverlay); else hide(selectOverlay);
+    if (m === "PAUSE") show(pauseOverlay); else hide(pauseOverlay);
+    if (m === "SHOP") show(shopOverlay); else hide(shopOverlay);
+    if (m === "TRANSITION") show(transitionOverlay); else hide(transitionOverlay);
   }
 
-  function willStepOff(ent, dir) {
-    const aheadX = ent.x + ent.w / 2 + dir * (ent.w / 2 + 8);
-    const probe = { x: aheadX, y: ent.y + ent.h + 2, w: 2, h: 10 };
-    for (const p of GAME.platforms) {
-      if (rectsOverlap(probe, p)) return false;
-    }
-    return true;
+  function pill(text) {
+    const d = document.createElement("div");
+    d.className = "pill";
+    d.textContent = text;
+    return d;
   }
 
-  // ---------- Drawing ----------
-  function drawBackground() {
-    const im = imgs.Background;
-    const scale = VIEW_H / im.height;
-    const tileW = im.width * scale;
+  function updateHUD() {
+    hudLeft.innerHTML = "";
+    hudRight.innerHTML = "";
 
-    const par = 0.18;
-    const x0 = -((GAME.camX * par) % tileW);
+    hudLeft.appendChild(pill(`Level: ${GAME.level}`));
+    hudLeft.appendChild(pill(`Coins: ${GAME.player.coins}`));
+    hudLeft.appendChild(pill(`Dash: ${GAME.player.hasDash ? (GAME.player.dashCd > 0 ? "Cooling" : "Ready") : "Locked"}`));
+    hudLeft.appendChild(pill(`Speed: ${GAME.player.speedMult > 1 ? "Boosted" : "Normal"}`));
+    hudLeft.appendChild(pill(`Throw: ${GAME.player.throwCd > 0 ? "Cooling" : "Ready"}`));
 
-    for (let x = x0; x < VIEW_W + tileW; x += tileW) {
-      ctx.drawImage(im, x, 0, tileW, VIEW_H);
-    }
+    const hpStr = `${GAME.player.hp}/${GAME.player.maxHp}`;
+    hudRight.appendChild(pill(`HP: ${hpStr}`));
   }
 
-  function drawPlatform(p) {
-    const im = imgs.Platform;
-    const scale = PLATFORM_H / im.height;
-    const tileW = im.width * scale;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(p.x, p.y, p.w, PLATFORM_H);
-    ctx.clip();
-    for (let x = p.x; x < p.x + p.w; x += tileW) {
-      ctx.drawImage(im, x, p.y, tileW, PLATFORM_H);
-    }
-    ctx.restore();
-  }
-
-  function drawSprite(im, ent, scale, footPad, opts = {}) {
-    const { flip = false, rot = 0, bobY = 0, sx = 1, sy = 1, alpha = 1 } = opts;
-
-    const dw = ent.w * scale * sx;
-    const dh = ent.h * scale * sy;
-
-    const cx = ent.x + ent.w / 2;
-    const baseY = (ent.y + ent.h) - dh + footPad + bobY;
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(cx, baseY + dh / 2);
-    ctx.rotate(rot);
-    ctx.scale(flip ? -1 : 1, 1);
-    ctx.drawImage(im, -dw / 2, -dh / 2, dw, dh);
-    ctx.restore();
-  }
-
-  function drawCoin(c, t) {
-    const spin = 0.55 + 0.45 * Math.sin(t * 8 + c.x * 0.02);
-    const dw = c.w * DRAW.coinScale * spin;
-    const dh = c.h * DRAW.coinScale;
-
-    const cx = c.x + c.w / 2;
-    const cy = c.y + c.h / 2;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.drawImage(imgs.Coin, -dw / 2, -dh / 2, dw, dh);
-    ctx.restore();
-  }
-
-  function drawExit(ex, t) {
-    const shimmer = 0.85 + 0.15 * Math.sin(t * 3);
-    drawSprite(imgs.Exit, ex, DRAW.exitScale, DRAW.exitFootPad, { alpha: shimmer });
-  }
-
-  function drawEnemyHp(ent) {
-    const blocks = ent.maxHp;
-    const filled = clamp(ent.hp, 0, ent.maxHp);
-    const bw = 10, bh = 6, gap = 2;
-    const total = blocks * (bw + gap) - gap;
-    const x = ent.x + ent.w / 2 - total / 2;
-    const y = ent.y - 16;
-
-    ctx.fillStyle = "rgba(0,0,0,.6)";
-    ctx.fillRect(x - 3, y - 3, total + 6, bh + 6);
-
-    for (let i = 0; i < blocks; i++) {
-      ctx.fillStyle = "rgba(255,255,255,.85)";
-      ctx.fillRect(x + i * (bw + gap), y, bw, bh);
-      ctx.fillStyle = "rgba(0,0,0,.95)";
-      ctx.fillRect(x + i * (bw + gap) + 1, y + 1, bw - 2, bh - 2);
-      if (i < filled) {
-        ctx.fillStyle = "rgba(255,255,255,.95)";
-        ctx.fillRect(x + i * (bw + gap) + 2, y + 2, bw - 4, bh - 4);
-      }
-    }
-  }
-
-  function updatePlayerHpHud() {
-    hpBlocksEl.innerHTML = "";
-    for (let i = 0; i < player.maxHp; i++) {
-      const d = document.createElement("div");
-      d.className = "hp-block" + (i < player.hp ? " filled" : "");
-      hpBlocksEl.appendChild(d);
-    }
-  }
-
-  // ---------- Stage building ----------
-  function clearWorld() {
-    GAME.platforms.length = 0;
-    GAME.pickups.length = 0;
-    GAME.enemies.length = 0;
-    GAME.projectiles.length = 0;
-    GAME.exit = null;
-    GAME.exitLocked = false;
-  }
-
-  function addGround(worldW) {
-    GAME.platforms.push({ x: 0, y: GROUND_Y, w: worldW, h: PLATFORM_H });
-  }
-
-  function setTutorialChecks() {
-    tutMove.textContent = GAME.tutorial.move ? "■" : "□";
-    tutJump.textContent = GAME.tutorial.jump ? "■" : "□";
-    tutThrow.textContent = GAME.tutorial.throw ? "■" : "□";
-
-    if (GAME.tutorial.move && GAME.tutorial.jump && GAME.tutorial.throw) {
-      tutorialBox.classList.add("hidden");
-    }
-  }
-
-  function stage1Tutorial() {
-    clearWorld();
-    GAME.worldW = 2600;
-    addGround(GAME.worldW);
-
-    // ✅ Platforms high enough so player fits under easily
-    const p1 = { x: 420, y: 500, w: 360, h: PLATFORM_H };
-    const p2 = { x: 860, y: 410, w: 360, h: PLATFORM_H };
-    const p3 = { x: 1320, y: 500, w: 360, h: PLATFORM_H };
-    GAME.platforms.push(p1, p2, p3);
-
-    // coins along the way
-    for (let i = 0; i < 8; i++) {
-      GAME.pickups.push({ kind: "coin", x: 480 + i * 120, y: 460 - (i % 2) * 36, w: 24, h: 24, value: 1 });
-    }
-
-    // enemy ON platform p2
-    const e = makeEnemy("enemy1", p2, false);
-    e.x = p2.x + 140;
-    e.y = p2.y - e.h;
-    e.patrolMin = p2.x + 10;
-    e.patrolMax = p2.x + p2.w - e.w - 10;
-    GAME.enemies.push(e);
-
-    // Exit always reachable
-    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
-
-    resetPlayer(120, GROUND_Y - player.h);
-
-    GAME.tutorial = { move: false, jump: false, throw: false };
-    tutorialBox.classList.remove("hidden");
-    setTutorialChecks();
-  }
-
-  function stage2Boss() {
-    clearWorld();
-    GAME.worldW = 2400;
-    addGround(GAME.worldW);
-
-    const p1 = { x: 520, y: 500, w: 420, h: PLATFORM_H };
-    const p2 = { x: 1040, y: 410, w: 420, h: PLATFORM_H };
-    const p3 = { x: 1560, y: 500, w: 420, h: PLATFORM_H };
-    GAME.platforms.push(p1, p2, p3);
-
-    // Boss on ground, exit locked until boss defeated
-    const boss = makeEnemy("enemy2", null, true);
-    boss.x = 1550;
-    boss.y = GROUND_Y - boss.h;
-    boss.patrolMin = 1100;
-    boss.patrolMax = 2100;
-    GAME.enemies.push(boss);
-
-    GAME.exitLocked = true;
-    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
-
-    resetPlayer(160, GROUND_Y - player.h);
-    tutorialBox.classList.add("hidden");
-  }
-
-  // ✅ Safe procedural: clamped heights + jumpable gaps + guaranteed path
-  function stageProcedural(n) {
-    clearWorld();
-
-    GAME.worldW = 2600 + Math.min(1200, n * 220);
-    addGround(GAME.worldW);
-
-    GAME.exitLocked = false;
-    GAME.exit = { x: GAME.worldW - 220, y: GROUND_Y - 140, w: 84, h: 140 };
-
-    const minY = 340;
-    const maxY = 520; // ensures player can run under platforms on ground
-    let x = 420;
-    let y = 500;
-
-    const islands = 7 + Math.min(6, n);
-    const made = [];
-
-    for (let i = 0; i < islands; i++) {
-      const w = 320 + Math.floor(Math.random() * 240);
-      const dx = 220 + Math.floor(Math.random() * 120); // jumpable
-      const dy = -80 + Math.floor(Math.random() * 160);
-
-      x += dx;
-      y = clamp(y + dy, minY, maxY);
-
-      if (x + w > GAME.worldW - 420) break;
-
-      const plat = { x, y, w, h: PLATFORM_H };
-      GAME.platforms.push(plat);
-      made.push(plat);
-
-      // coins
-      const cN = 2 + Math.floor(Math.random() * 4);
-      for (let c = 0; c < cN; c++) {
-        GAME.pickups.push({ kind: "coin", x: x + 40 + c * 90, y: y - 46, w: 24, h: 24, value: 1 });
-      }
-
-      // enemies spawn ON platforms
-      if (Math.random() < 0.7) {
-        const type = Math.random() < 0.55 ? "enemy1" : "enemy2";
-        const e = makeEnemy(type, plat, false);
-        e.x = x + 80;
-        e.y = y - e.h;
-        e.patrolMin = x + 10;
-        e.patrolMax = x + w - e.w - 10;
-        GAME.enemies.push(e);
-      }
-    }
-
-    // guarantee at least one platform if randomness bails
-    if (made.length === 0) {
-      const plat = { x: 720, y: 500, w: 560, h: PLATFORM_H };
-      GAME.platforms.push(plat);
-      const e = makeEnemy("enemy1", plat, false);
-      e.x = plat.x + 120;
-      e.y = plat.y - e.h;
-      e.patrolMin = plat.x + 10;
-      e.patrolMax = plat.x + plat.w - e.w - 10;
-      GAME.enemies.push(e);
-    }
-
-    resetPlayer(120, GROUND_Y - player.h);
-    tutorialBox.classList.add("hidden");
-  }
-
-  function loadStage(n) {
-    GAME.stage = n;
-    GAME.shopUsedThisStage = false;
-
-    if (n === 1) stage1Tutorial();
-    else if (n === 2) stage2Boss();
-    else stageProcedural(n);
-
-    GAME.mode = "play";
-    hideOverlays();
-    menuEl.classList.add("hidden");
-    GAME.camX = 0;
-
-    updateHud();
-    updatePlayerHpHud();
-  }
-
-  // ---------- Enemy AI (platform-first) ----------
-  function enemyThink(e, dt) {
-    const dx = (player.x + player.w / 2) - (e.x + e.w / 2);
-    const absDx = Math.abs(dx);
-    const dir = dx < 0 ? -1 : 1;
-
-    const playerFeet = player.y + player.h;
-    const enemyFeet = e.y + e.h;
-
-    const sameLane = Math.abs(playerFeet - enemyFeet) < 30;
-    const playerBelow = playerFeet > enemyFeet + 40;
-
-    let wantsChase = absDx < 320 && (sameLane || playerBelow);
-    if (e.isBoss && absDx < 520) wantsChase = true;
-
-    // ✅ Anchored to a platform: patrol it, don't fall off unless chasing below
-    if (e.platform) {
-      // stay in bounds of platform
-      e.x = clamp(e.x, e.platform.x + 6, e.platform.x + e.platform.w - e.w - 6);
-
-      // drop ONLY if player below + close to edge
-      if (wantsChase && playerBelow && absDx < 260) {
-        const edge = 10;
-        const atLeft = e.x <= e.platform.x + edge;
-        const atRight = e.x >= e.platform.x + e.platform.w - e.w - edge;
-
-        e.facing = dir;
-        e.vx = dir * e.speed * 0.85;
-
-        if ((dir < 0 && atLeft) || (dir > 0 && atRight)) {
-          e.platform = null; // now freefall / ground chase
-          e.patrolMin = e.x - 180;
-          e.patrolMax = e.x + 180;
-        }
-        return;
-      }
-
-      // chase on platform only if safe (won't step off)
-      if (wantsChase && sameLane) {
-        if (!willStepOff(e, dir)) {
-          e.vx = dir * e.speed;
-          e.facing = dir;
-        } else {
-          e.vx *= 0.15;
-        }
-      } else {
-        // patrol
-        if (e.x < e.patrolMin) e.facing = 1;
-        if (e.x > e.patrolMax) e.facing = -1;
-
-        if (!willStepOff(e, e.facing)) e.vx = e.facing * e.speed * 0.75;
-        else { e.facing *= -1; e.vx = 0; }
-      }
-      return;
-    }
-
-    // free chase/patrol
-    if (wantsChase) {
-      e.vx = dir * e.speed;
-      e.facing = dir;
-    } else {
-      if (e.x < e.patrolMin) e.facing = 1;
-      if (e.x > e.patrolMax) e.facing = -1;
-      e.vx = e.facing * e.speed * 0.65;
-    }
-
-    // boss occasional jump
-    if (e.isBoss) {
-      e.jumpCd = Math.max(0, e.jumpCd - dt);
-      if (e.jumpCd <= 0 && e.onGround && absDx < 420) {
-        e.vy = -780;
-        e.jumpCd = 2.2;
-      }
-    }
-  }
-
-  // ---------- Combat ----------
-  function throwWeapon() {
-    if (player.throwCd > 0) return;
-    player.throwCd = 0.35;
-
-    GAME.projectiles.push({
-      x: player.x + player.w / 2 + player.facing * 22,
-      y: player.y + 18,
-      w: 22,
-      h: 22,
-      vx: player.facing * 780,
-      vy: -220,
-      life: 1.6,
-      dmg: 2,
-    });
-
-    if (GAME.stage === 1 && !GAME.tutorial.throw) {
-      GAME.tutorial.throw = true;
-      setTutorialChecks();
-    }
-  }
-
-  function hurtPlayer(amount) {
-    if (player.invuln > 0) return;
-    player.hp = Math.max(0, player.hp - amount);
-    player.invuln = 0.6;
-    updatePlayerHpHud();
-
-    if (player.hp <= 0) loadStage(GAME.stage);
-  }
-
-  // ---------- Shop ----------
-  const SHOP_ITEMS = [
-    { id: "dash", name: "Unlock Dash", desc: "Press Shift to dash forward.", cost: 10, canBuy: () => !GAME.dashUnlocked,
-      buy: () => (GAME.dashUnlocked = true) },
-    { id: "speed", name: "Unlock Speedboost", desc: "Move faster permanently.", cost: 12, canBuy: () => !GAME.speedUnlocked,
-      buy: () => (GAME.speedUnlocked = true) },
-    { id: "hp", name: "+1 Max HP", desc: "Increase max HP by 1 (max 12).", cost: 15, canBuy: () => player.maxHp < 12,
-      buy: () => { player.maxHp += 1; player.hp = player.maxHp; } },
-    { id: "heal", name: "Heal to Full", desc: "Restore HP to max.", cost: 6, canBuy: () => player.hp < player.maxHp,
-      buy: () => { player.hp = player.maxHp; } },
-  ];
-
-  function renderShop() {
-    shopCoinsEl.textContent = String(GAME.coins);
-    shopList.innerHTML = "";
-
-    for (const item of SHOP_ITEMS) {
-      const wrap = document.createElement("div");
-      wrap.className = "shop-item";
-
-      const name = document.createElement("div");
-      name.className = "name";
-      name.textContent = item.name;
-
-      const desc = document.createElement("div");
-      desc.className = "desc";
-      desc.textContent = item.desc;
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-
-      const price = document.createElement("div");
-      price.className = "mono";
-      price.textContent = `Cost: ${item.cost}`;
-
-      const btn = document.createElement("button");
-      btn.className = "btn-solid";
-
-      const canBuy = item.canBuy();
-      btn.disabled = !canBuy || GAME.coins < item.cost;
-      btn.textContent = canBuy ? (GAME.coins < item.cost ? "Need coins" : "Buy") : "Owned";
-
-      btn.onclick = () => {
-        if (btn.disabled) return;
-        GAME.coins -= item.cost;
-        item.buy();
-        renderShop();
-        updateHud();
-        updatePlayerHpHud();
-      };
-
-      meta.appendChild(price);
-      meta.appendChild(btn);
-
-      wrap.appendChild(name);
-      wrap.appendChild(desc);
-      wrap.appendChild(meta);
-
-      shopList.appendChild(wrap);
-    }
-  }
-
-  // ---------- UI / Modes ----------
-  function hideOverlays() {
-    pauseOverlay.classList.add("hidden");
-    stageClearOverlay.classList.add("hidden");
-    shopOverlay.classList.add("hidden");
-    loadingOverlay.classList.add("hidden");
-  }
-
-  function openStageClear() {
-    GAME.mode = "stageclear";
-    stageClearTitle.textContent = `STAGE ${GAME.stage} CLEARED`;
-    stageClearSub.textContent = GAME.shopUsedThisStage ? "Shop already used this stage." : "Shop available once per stage.";
-    stageClearOverlay.classList.remove("hidden");
-  }
-
-  function openShop() {
-    if (GAME.shopUsedThisStage) return;
-    GAME.mode = "shop";
-    shopOverlay.classList.remove("hidden");
-    renderShop();
-  }
-
-  function closeShopBackToClear() {
-    shopOverlay.classList.add("hidden");
-    GAME.shopUsedThisStage = true;
-    openStageClear();
-  }
-
-  function startLoadingNextStage(nextStage) {
-    GAME.mode = "loading";
-    loadingOverlay.classList.remove("hidden");
-    GAME.loadingT = 0;
-    GAME.pendingStage = nextStage;
-    loadingFill.style.width = "0%";
-  }
-
-  function togglePause() {
-    if (["menu","shop","stageclear","loading","boot"].includes(GAME.mode)) return;
-    if (GAME.mode === "paused") {
-      GAME.mode = "play";
-      pauseOverlay.classList.add("hidden");
-    } else if (GAME.mode === "play") {
-      GAME.mode = "paused";
-      pauseOverlay.classList.remove("hidden");
-    }
-  }
-
-  // Buttons
-  btnResume.addEventListener("click", () => { if (GAME.mode === "paused") togglePause(); });
-  btnRestart.addEventListener("click", () => { loadStage(GAME.stage); });
-  btnBackMenu.addEventListener("click", () => {
-    GAME.mode = "menu";
-    hideOverlays();
-    menuEl.classList.remove("hidden");
+  // =========================
+  // Character select
+  // =========================
+  const playable = ["Gilly","Scott","Kevin","Nate"];
+  let selectedChar = "";
+
+  function buildCharSelect() {
+    charRow.innerHTML = "";
+    selectedChar = "";
     btnStart.disabled = true;
-    selectedChar = null;
-    tutorialBox.classList.add("hidden");
-  });
 
-  btnShop.addEventListener("click", () => {
-    if (GAME.shopUsedThisStage) return;
-    stageClearOverlay.classList.add("hidden");
-    openShop();
-  });
-
-  btnShopBack.addEventListener("click", closeShopBackToClear);
-
-  btnNextStage.addEventListener("click", () => {
-    stageClearOverlay.classList.add("hidden");
-    startLoadingNextStage(GAME.stage + 1);
-  });
-
-  btnClearRestart.addEventListener("click", () => {
-    stageClearOverlay.classList.add("hidden");
-    loadStage(GAME.stage);
-  });
-
-  // ---------- HUD ----------
-  function updateHud() {
-    hudStage.textContent = `Level: ${GAME.stage}`;
-    hudCoins.textContent = `Coins: ${GAME.coins}`;
-    hudDash.textContent = GAME.dashUnlocked ? (player.dashCd > 0 ? "Dash: Cooling" : "Dash: Ready") : "Dash: Locked";
-    hudSpeed.textContent = GAME.speedUnlocked ? "Speed: Boosted" : "Speed: Normal";
-    hudThrow.textContent = player.throwCd > 0 ? "Throw: Cooling" : "Throw: Ready";
-  }
-
-  // ---------- Character Select ----------
-  // ✅ Edgar now playable too
-  const PLAYABLE = ["Gilly", "Scott", "Kevin", "Nate", "Edgar"];
-  let selectedChar = null;
-
-  function buildCharacterGrid() {
-    charGridEl.innerHTML = "";
-    for (const name of PLAYABLE) {
+    for (const key of playable) {
       const card = document.createElement("div");
-      card.className = "char-card";
+      card.className = "charCard";
+
+      const thumb = document.createElement("div");
+      thumb.className = "charThumb";
 
       const im = document.createElement("img");
-      im.alt = name;
-      im.src = imgs[name].src;
+      im.src = imgs[key]?.src || (ASSET_BASE + FILES[key]);
+      thumb.appendChild(im);
 
-      const txt = document.createElement("div");
       const nm = document.createElement("div");
-      nm.className = "char-name";
-      nm.textContent = name;
+      nm.className = "charName";
+      nm.textContent = key;
 
-      const sub = document.createElement("div");
-      sub.className = "small";
-      sub.textContent = "Playable";
+      card.appendChild(thumb);
+      card.appendChild(nm);
 
-      txt.appendChild(nm);
-      txt.appendChild(sub);
-
-      card.appendChild(im);
-      card.appendChild(txt);
-
-      card.onclick = () => {
-        selectedChar = name;
-        player.char = name;
-        [...charGridEl.querySelectorAll(".char-card")].forEach((c) => c.classList.remove("selected"));
+      card.addEventListener("click", () => {
+        selectedChar = key;
+        [...charRow.querySelectorAll(".charCard")].forEach(x => x.classList.remove("selected"));
         card.classList.add("selected");
         btnStart.disabled = false;
-      };
+      });
 
-      charGridEl.appendChild(card);
+      charRow.appendChild(card);
     }
   }
 
   btnStart.addEventListener("click", () => {
     if (!selectedChar) return;
-    loadStage(1);
+    GAME.player.charKey = selectedChar;
+    startNewRun();
   });
 
-  // ---------- Update Loop ----------
-  let last = 0;
-
-  function update(dt) {
-    if (["paused","menu","stageclear","shop","boot"].includes(GAME.mode)) return;
-
-    // Loading next stage (5–10 sec)
-    if (GAME.mode === "loading") {
-      GAME.loadingT += dt;
-      const t = clamp(GAME.loadingT / GAME.loadingDur, 0, 1);
-      loadingFill.style.width = `${Math.floor(t * 100)}%`;
-      if (t >= 1) {
-        loadingOverlay.classList.add("hidden");
-        loadStage(GAME.pendingStage);
-      }
-      return;
+  // =========================
+  // Pause / Restart
+  // =========================
+  btnResume.addEventListener("click", () => {
+    if (GAME.mode === "PAUSE") setMode("PLAY");
+  });
+  btnRestart.addEventListener("click", () => {
+    if (GAME.mode === "PAUSE") {
+      restartLevel();
+      setMode("PLAY");
     }
+  });
+
+  function togglePause() {
+    if (GAME.mode === "PLAY") setMode("PAUSE");
+    else if (GAME.mode === "PAUSE") setMode("PLAY");
+  }
+
+  // =========================
+  // Shop
+  // =========================
+  btnShopContinue.addEventListener("click", () => {
+    // exit shop, go play
+    setMode("PLAY");
+  });
+
+  function openShop() {
+    GAME.shopAvailable = false; // one-time per stage
+    setMode("SHOP");
+
+    shopCoins.textContent = `Coins: ${GAME.player.coins}`;
+    shopList.innerHTML = "";
+
+    const items = [
+      {
+        id: "hpUp",
+        name: "+1 MAX HP",
+        price: 8,
+        desc: "More blocks in your HP bar. Retro toughness.",
+        buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; }
+      },
+      {
+        id: "throwUp",
+        name: "+ Throw Damage",
+        price: 10,
+        desc: "Home phone hits harder (because physics is optional).",
+        buy: () => { GAME.player.throwDmg += 4; }
+      },
+      {
+        id: "dashUnlock",
+        name: "Unlock Dash",
+        price: 12,
+        desc: "Enables Shift dash (short burst).",
+        buy: () => { GAME.player.hasDash = true; }
+      },
+      {
+        id: "speedBoost",
+        name: "Speed Boost",
+        price: 10,
+        desc: "Move faster for this stage.",
+        buy: () => { GAME.player.speedMult = 1.18; }
+      },
+    ];
+
+    for (const it of items) {
+      const box = document.createElement("div");
+      box.className = "shopItem";
+
+      const nm = document.createElement("div");
+      nm.className = "name";
+      nm.textContent = it.name;
+
+      const ds = document.createElement("div");
+      ds.className = "desc";
+      ds.textContent = it.desc;
+
+      const pr = document.createElement("div");
+      pr.className = "price";
+      pr.textContent = `Price: ${it.price}`;
+
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = "BUY";
+      btn.disabled = GAME.player.coins < it.price;
+
+      btn.addEventListener("click", () => {
+        if (GAME.player.coins < it.price) return;
+        GAME.player.coins -= it.price;
+        it.buy();
+        shopCoins.textContent = `Coins: ${GAME.player.coins}`;
+        updateHUD();
+        // refresh buttons
+        [...shopList.querySelectorAll("button")].forEach((b, idx) => {
+          b.disabled = GAME.player.coins < items[idx].price;
+        });
+      });
+
+      box.appendChild(nm);
+      box.appendChild(ds);
+      box.appendChild(pr);
+      box.appendChild(btn);
+      shopList.appendChild(box);
+    }
+  }
+
+  // =========================
+  // Geometry helpers
+  // =========================
+  function rectsOverlap(a, b) {
+    return (a.x < b.x + b.w &&
+            a.x + a.w > b.x &&
+            a.y < b.y + b.h &&
+            a.y + a.h > b.y);
+  }
+
+  function moveAndCollide(ent, dt) {
+    ent.onGround = false;
+
+    // X
+    ent.x += ent.vx * dt;
+    for (const p of GAME.platforms) {
+      if (!rectsOverlap(ent, p)) continue;
+      if (ent.vx > 0) ent.x = p.x - ent.w;
+      else if (ent.vx < 0) ent.x = p.x + p.w;
+      ent.vx = 0;
+    }
+
+    // Y
+    ent.y += ent.vy * dt;
+    for (const p of GAME.platforms) {
+      if (!rectsOverlap(ent, p)) continue;
+      if (ent.vy > 0) {
+        ent.y = p.y - ent.h;
+        ent.vy = 0;
+        ent.onGround = true;
+      } else if (ent.vy < 0) {
+        ent.y = p.y + p.h;
+        ent.vy = 0;
+      }
+    }
+  }
+
+  function findSupportPlatform(ent) {
+    // finds platform directly under feet (for nav id)
+    const feet = { x: ent.x + 2, y: ent.y + ent.h + 2, w: ent.w - 4, h: 4 };
+    for (let i = 0; i < GAME.platforms.length; i++) {
+      if (rectsOverlap(feet, GAME.platforms[i])) return i;
+    }
+    return -1;
+  }
+
+  // =========================
+  // Stage generation
+  // =========================
+  function clearWorld() {
+    GAME.platforms.length = 0;
+    GAME.pickups.length = 0;
+    GAME.enemies.length = 0;
+    GAME.projectiles.length = 0;
+    GAME.bossShots.length = 0;
+    GAME.stageCleared = false;
+    GAME.exitLocked = true;
+    GAME.toastText = "";
+    GAME.toastT = 0;
+  }
+
+  function addGround(worldW) {
+    GAME.platforms.push({ x: 0, y: FLOOR_Y, w: worldW, h: VIEW_H - FLOOR_Y });
+  }
+
+  function buildNavGraph() {
+    // platform jump constraints for AI
+    const maxRise = 190;
+    const maxDrop = 260;
+    const maxDx = 320;
+
+    const n = GAME.platforms.length;
+    const nav = Array.from({ length: n }, () => []);
+
+    for (let i = 0; i < n; i++) {
+      const a = GAME.platforms[i];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const b = GAME.platforms[j];
+
+        // from a to b: consider edge-to-edge dx
+        const dxRight = b.x - (a.x + a.w);
+        const dxLeft = a.x - (b.x + b.w);
+        const dy = b.y - a.y;
+
+        // b to the right
+        if (dxRight >= -40 && dxRight <= maxDx) {
+          if (dy >= -maxRise && dy <= maxDrop) nav[i].push(j);
+        }
+
+        // b to the left
+        if (dxLeft >= -40 && dxLeft <= maxDx) {
+          if (dy >= -maxRise && dy <= maxDrop) nav[i].push(j);
+        }
+      }
+    }
+
+    GAME.nav = nav;
+  }
+
+  function stageIsBoss(level) {
+    return level % 5 === 0;
+  }
+
+  function resetPlayer(x, y) {
+    const p = GAME.player;
+    p.x = x; p.y = y;
+    p.vx = 0; p.vy = 0;
+    p.onGround = false;
+    p.face = 1;
+    p.iT = 0;
+    p.throwCd = 0;
+    p.dashCd = 0;
+    p.dashT = 0;
+    p.speedMult = 1; // shop can override per stage, but we reset each new stage
+  }
+
+  function makeEnemy(kind, platRect, isBoss = false) {
+    if (isBoss) {
+      return {
+        kind: "boss",
+        bossType: kind, // "enemy1" or "enemy2"
+        x: platRect.x + platRect.w * 0.65,
+        y: platRect.y - BOSS.h,
+        w: BOSS.w, h: BOSS.h,
+        vx: 0, vy: 0,
+        onGround: false,
+        hp: BOSS.hpBase + (GAME.level * 8),
+        maxHp: BOSS.hpBase + (GAME.level * 8),
+        face: -1,
+        aiT: 0,
+        state: "idle",
+        atkCd: 1.2,
+        slamCd: 2.3,
+        shootCd: 1.6,
+      };
+    }
+
+    const is2 = kind === "enemy2";
+    return {
+      kind,
+      x: platRect.x + 50,
+      y: platRect.y - ENEMY.baseH,
+      w: ENEMY.baseW,
+      h: ENEMY.baseH,
+      vx: 0, vy: 0,
+      onGround: false,
+      hp: is2 ? 40 : 30,
+      maxHp: is2 ? 40 : 30,
+      face: 1,
+      patrolMin: platRect.x + 10,
+      patrolMax: platRect.x + platRect.w - ENEMY.baseW - 10,
+      platformId: -1,
+      thinkT: 0,
+      meleeCd: 0,
+      targetPlat: -1,
+      path: [],
+      nextHop: -1,
+    };
+  }
+
+  function stageGenerate(level) {
+    clearWorld();
+
+    const bossStage = stageIsBoss(level);
+    const rng = mulberry32(12345 + level * 999);
+
+    GAME.worldW = bossStage ? 2200 : (2600 + Math.min(1400, level * 220));
+    addGround(GAME.worldW);
+
+    // Exit door placement (always within world)
+    GAME.exit.w = 96;
+    GAME.exit.h = 150;
+    GAME.exit.x = GAME.worldW - 220;
+    GAME.exit.y = FLOOR_Y - GAME.exit.h;
+
+    if (bossStage) {
+      // Boss arena: big open space + a couple platforms
+      const arena = { x: 520, y: 520, w: 820, h: PLATFORM_H };
+      const mid = { x: 880, y: 420, w: 420, h: PLATFORM_H };
+      const left = { x: 300, y: 460, w: 360, h: PLATFORM_H };
+      GAME.platforms.push(arena, mid, left);
+
+      // Coins sprinkled
+      for (let i = 0; i < 10; i++) {
+        GAME.pickups.push({
+          kind: "coin",
+          x: 520 + i * 140,
+          y: 320 + (i % 2) * 40,
+          w: 24, h: 24,
+          value: 1
+        });
+      }
+
+      // Boss spawns on arena platform
+      const boss = makeEnemy(rng() < 0.5 ? "enemy1" : "enemy2", arena, true);
+      GAME.enemies.push(boss);
+
+      // Boss stage: exit locked until boss dead
+      GAME.exitLocked = true;
+      setToast("BOSS STAGE — defeat it to unlock the exit!", 3.0);
+
+    } else {
+      // Normal stage: guaranteed path platforms + Signal Flag
+      GAME.exitLocked = true;
+
+      let x = 420;
+      let y = 520;
+
+      const minY = 360;
+      const maxY = 540;
+
+      const pathCount = 8 + Math.min(7, level);
+      const path = [];
+
+      for (let i = 0; i < pathCount; i++) {
+        const w = 340 + Math.floor(rng() * 260);
+
+        const dx = 230 + Math.floor(rng() * 70); // jumpable gaps
+        const dy = -70 + Math.floor(rng() * 140); // reachable vertical shifts
+
+        x += dx;
+        y = clamp(y + dy, minY, maxY);
+
+        if (x + w > GAME.worldW - 560) break;
+
+        const plat = { x, y, w, h: PLATFORM_H };
+        GAME.platforms.push(plat);
+        path.push(plat);
+
+        // Coins
+        const cN = 2 + Math.floor(rng() * 3);
+        for (let c = 0; c < cN; c++) {
+          GAME.pickups.push({
+            kind: "coin",
+            x: x + 50 + c * 90,
+            y: y - 46,
+            w: 24, h: 24,
+            value: 1
+          });
+        }
+
+        // Enemies spawn on platforms (platform-aware)
+        if (i > 0 && rng() < 0.58) {
+          const type = rng() < 0.6 ? "enemy1" : "enemy2";
+          const e = makeEnemy(type, plat, false);
+          e.x = x + 80;
+          e.y = y - e.h;
+          e.patrolMin = x + 10;
+          e.patrolMax = x + w - e.w - 10;
+          GAME.enemies.push(e);
+        }
+
+        // Powerups occasionally
+        if (level >= 2 && rng() < 0.18) {
+          GAME.pickups.push({
+            kind: "dash",
+            x: x + w * 0.5,
+            y: y - 54,
+            w: 36, h: 36
+          });
+        }
+        if (level >= 3 && rng() < 0.16) {
+          GAME.pickups.push({
+            kind: "speed",
+            x: x + w * 0.72,
+            y: y - 54,
+            w: 36, h: 36
+          });
+        }
+      }
+
+      // Safety: ensure path exists
+      if (path.length === 0) {
+        const plat = { x: 720, y: 520, w: 640, h: PLATFORM_H };
+        GAME.platforms.push(plat);
+        path.push(plat);
+      }
+
+      // Signal Flag on last path platform
+      const last = path[path.length - 1];
+      GAME.pickups.push({
+        kind: "flag",
+        x: last.x + last.w - 90,
+        y: last.y - 74,
+        w: 48, h: 74
+      });
+
+      setToast("Exit locked — grab the Signal Flag!", 2.6);
+    }
+
+    // Player start
+    resetPlayer(120, FLOOR_Y - PLAYER.h);
+
+    // Tutorial stage 1
+    if (level === 1) {
+      tutorialOverlay.classList.remove("hidden");
+      tMove.checked = false;
+      tJump.checked = false;
+      tThrow.checked = false;
+    } else {
+      tutorialOverlay.classList.add("hidden");
+    }
+
+    // Build AI nav graph after platform list is final
+    buildNavGraph();
+
+    // Update HUD
+    updateHUD();
+  }
+
+  // =========================
+  // Enemy AI (platform-aware)
+  // =========================
+  function bfsNextHop(start, goal) {
+    if (start < 0 || goal < 0) return -1;
+    if (start === goal) return start;
+
+    const q = [start];
+    const prev = new Map();
+    prev.set(start, -1);
+
+    while (q.length) {
+      const cur = q.shift();
+      for (const nx of GAME.nav[cur] || []) {
+        if (prev.has(nx)) continue;
+        prev.set(nx, cur);
+        if (nx === goal) {
+          // backtrack to find first hop
+          let step = nx;
+          let p = prev.get(step);
+          while (p !== -1 && p !== start) {
+            step = p;
+            p = prev.get(step);
+          }
+          return step;
+        }
+        q.push(nx);
+      }
+    }
+    return -1;
+  }
+
+  function updateEnemyAI(e, dt) {
+    const p = GAME.player;
+
+    // gravity
+    e.vy += GRAVITY * dt;
 
     // cooldowns
-    player.dashCd = Math.max(0, player.dashCd - dt);
-    player.throwCd = Math.max(0, player.throwCd - dt);
-    player.invuln = Math.max(0, player.invuln - dt);
-    player.landedT = Math.max(0, player.landedT - dt);
+    e.meleeCd = Math.max(0, (e.meleeCd || 0) - dt);
+    e.thinkT = Math.max(0, (e.thinkT || 0) - dt);
+
+    // Update platform id if grounded
+    if (e.onGround) e.platformId = findSupportPlatform(e);
+    const playerPlat = findSupportPlatform(p);
+
+    const dxToPlayer = (p.x + p.w / 2) - (e.x + e.w / 2);
+    const dist = Math.abs(dxToPlayer);
+
+    // Smarter behavior:
+    // - If same platform: chase + melee
+    // - Else: use nav graph to move to next hop platform intentionally
+
+    const is2 = e.kind === "enemy2";
+    const speed = is2 ? ENEMY.speed2 : ENEMY.speed1;
+    const jumpV = is2 ? ENEMY.jumpV2 : ENEMY.jumpV1;
+
+    if (e.platformId === playerPlat && e.platformId >= 0) {
+      // chase
+      e.face = dxToPlayer >= 0 ? 1 : -1;
+      e.vx = e.face * speed;
+
+      // melee
+      if (dist < ENEMY.aggro && dist < ENEMY.meleeRange && e.meleeCd <= 0) {
+        if (p.iT <= 0) {
+          p.hp = Math.max(0, p.hp - 1);
+          p.iT = 0.6;
+          setToast("Ouch!", 0.7);
+          updateHUD();
+        }
+        e.meleeCd = ENEMY.meleeCd;
+      }
+    } else {
+      // different platforms: consider pathing when close enough or always on later levels
+      const shouldAggro = dist < ENEMY.aggro || GAME.level >= 4;
+
+      if (!shouldAggro) {
+        // patrol on current platform
+        e.vx = e.face * speed * 0.7;
+      } else {
+        // re-think path occasionally
+        if (e.thinkT <= 0) {
+          e.targetPlat = playerPlat;
+          e.nextHop = bfsNextHop(e.platformId, playerPlat);
+          e.thinkT = 0.35 + (is2 ? 0.12 : 0.18);
+        }
+
+        // If no hop known, fall back to patrol-ish
+        if (e.nextHop < 0 || e.platformId < 0) {
+          e.vx = e.face * speed * 0.6;
+        } else if (e.nextHop === e.platformId) {
+          // can't find better, move toward player x anyway
+          e.face = dxToPlayer >= 0 ? 1 : -1;
+          e.vx = e.face * speed * 0.7;
+        } else {
+          const curPlat = GAME.platforms[e.platformId];
+          const nextPlat = GAME.platforms[e.nextHop];
+
+          const goRight = (nextPlat.x + nextPlat.w / 2) > (curPlat.x + curPlat.w / 2);
+          e.face = goRight ? 1 : -1;
+
+          // Move toward edge
+          const edgeX = goRight ? (curPlat.x + curPlat.w - e.w - 6) : (curPlat.x + 6);
+          const distToEdge = Math.abs(e.x - edgeX);
+
+          // stay on platform until we're intentionally leaving
+          e.vx = e.face * speed;
+
+          // Clamp within platform while "approaching edge"
+          if (distToEdge > 8) {
+            e.x = clamp(e.x, curPlat.x + 4, curPlat.x + curPlat.w - e.w - 4);
+          } else {
+            // at edge: decide jump or drop
+            const dy = nextPlat.y - curPlat.y;
+            const gap =
+              goRight
+                ? (nextPlat.x - (curPlat.x + curPlat.w))
+                : (curPlat.x - (nextPlat.x + nextPlat.w));
+
+            const needsJump = dy < -15 || gap > 20;
+
+            if (needsJump && e.onGround) {
+              e.vy = jumpV;
+              e.onGround = false;
+            }
+            // for drop: do nothing special; walking off is intentional now
+          }
+        }
+      }
+
+      // Patrol bounds if on a platform and not actively leaving it
+      if (e.onGround && e.platformId >= 0) {
+        const plat = GAME.platforms[e.platformId];
+        const minX = e.patrolMin ?? (plat.x + 10);
+        const maxX = e.patrolMax ?? (plat.x + plat.w - e.w - 10);
+
+        // If not in "pathing edge mode", keep them from falling off randomly
+        if (dist > ENEMY.aggro * 0.9) {
+          if (e.x < minX) { e.x = minX; e.face = 1; }
+          if (e.x > maxX) { e.x = maxX; e.face = -1; }
+        }
+      }
+    }
+
+    // apply movement + collisions
+    moveAndCollide(e, dt);
+
+    // if they hit patrol bounds, flip
+    if (e.onGround) {
+      if (e.x <= (e.patrolMin ?? -Infinity) + 1) e.face = 1;
+      if (e.x >= (e.patrolMax ?? Infinity) - 1) e.face = -1;
+    }
+
+    // clamp world
+    e.x = clamp(e.x, 0, GAME.worldW - e.w);
+    if (e.y > VIEW_H + 300) {
+      // fell out of world: respawn on ground
+      e.y = FLOOR_Y - e.h;
+      e.vy = 0;
+      e.onGround = true;
+    }
+  }
+
+  // =========================
+  // Boss AI (patterns)
+  // =========================
+  function spawnBossShot(x, y, vx, vy) {
+    GAME.bossShots.push({ x, y, vx, vy, w: 10, h: 10, t: 5.0 });
+  }
+
+  function updateBoss(b, dt) {
+    const p = GAME.player;
+
+    // gravity
+    b.vy += GRAVITY * dt;
+
+    b.atkCd = Math.max(0, b.atkCd - dt);
+    b.slamCd = Math.max(0, b.slamCd - dt);
+    b.shootCd = Math.max(0, b.shootCd - dt);
+
+    const dx = (p.x + p.w/2) - (b.x + b.w/2);
+    b.face = dx >= 0 ? 1 : -1;
+
+    // Simple boss brain:
+    // - close: charge
+    // - sometimes: jump slam
+    // - sometimes: shoot spread
+    const dist = Math.abs(dx);
+
+    // movement base
+    b.vx = b.face * BOSS.speed * (dist > 240 ? 1 : 0.7);
+
+    // charge hit
+    if (dist < 90 && b.atkCd <= 0) {
+      // lunge
+      b.vx = b.face * 520;
+      b.atkCd = 1.0;
+
+      if (rectsOverlap(b, p) && p.iT <= 0) {
+        p.hp = Math.max(0, p.hp - 2);
+        p.iT = 0.75;
+        setToast("Boss hit!", 0.9);
+        updateHUD();
+      }
+    }
+
+    // slam
+    if (b.slamCd <= 0 && dist < 520 && b.onGround) {
+      b.vy = BOSS.jumpV;
+      b.slamCd = 2.4;
+    }
+
+    // shoot
+    if (b.shootCd <= 0 && dist < 700) {
+      const sx = b.x + b.w/2 + b.face * 30;
+      const sy = b.y + b.h/2;
+      spawnBossShot(sx, sy, b.face * 420, -40);
+      spawnBossShot(sx, sy, b.face * 420, 0);
+      spawnBossShot(sx, sy, b.face * 420, 40);
+      b.shootCd = 1.8;
+    }
+
+    moveAndCollide(b, dt);
+
+    // If boss touches player, hurt
+    if (rectsOverlap(b, p) && p.iT <= 0) {
+      p.hp = Math.max(0, p.hp - 1);
+      p.iT = 0.55;
+      updateHUD();
+    }
+
+    b.x = clamp(b.x, 0, GAME.worldW - b.w);
+  }
+
+  // =========================
+  // Player
+  // =========================
+  function updatePlayer(dt) {
+    const p = GAME.player;
+
+    // timers
+    p.iT = Math.max(0, p.iT - dt);
+    p.throwCd = Math.max(0, p.throwCd - dt);
+    p.dashCd = Math.max(0, p.dashCd - dt);
+    p.dashT = Math.max(0, p.dashT - dt);
+
+    // tutorial checks
+    if (GAME.level === 1 && !tutorialOverlay.classList.contains("hidden")) {
+      if (down("ArrowLeft","ArrowRight","KeyA","KeyD")) tMove.checked = true;
+      if (down("Space")) tJump.checked = true;
+      if (down("KeyF")) tThrow.checked = true;
+      if (tMove.checked && tJump.checked && tThrow.checked) tutorialOverlay.classList.add("hidden");
+    }
+
+    // dash
+    if (p.hasDash && p.dashCd <= 0 && down("ShiftLeft") && p.dashT <= 0) {
+      p.dashT = PLAYER.dashTime;
+      p.dashDir = p.face;
+      p.dashCd = 1.0;
+    }
 
     // movement
-    let move = 0;
-    if (down("ArrowLeft") || down("KeyA")) move -= 1;
-    if (down("ArrowRight") || down("KeyD")) move += 1;
+    const moveDir = (down("ArrowRight","KeyD") ? 1 : 0) + (down("ArrowLeft","KeyA") ? -1 : 0);
+    if (moveDir !== 0) p.face = moveDir;
 
-    if (move !== 0) {
-      player.facing = move;
-      player.vx += move * PHYS.accel * dt;
+    const baseSpeed = PLAYER.speed * p.speedMult;
+    if (p.dashT > 0) {
+      p.vx = p.dashDir * PLAYER.dashV;
     } else {
-      player.vx *= PHYS.friction;
-      if (Math.abs(player.vx) < 8) player.vx = 0;
+      p.vx = moveDir * baseSpeed;
     }
 
-    const maxSpeed = PHYS.maxSpeed * (GAME.speedUnlocked ? 1.25 : 1.0);
-    player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
+    // gravity
+    p.vy += GRAVITY * dt;
 
-    const wasGround = player.onGround;
-
-    if ((down("Space") || down("ArrowUp")) && player.onGround) {
-      player.vy = -PHYS.jump;
-      player.onGround = false;
-      if (GAME.stage === 1 && !GAME.tutorial.jump) {
-        GAME.tutorial.jump = true;
-        setTutorialChecks();
-      }
+    // jump
+    if (down("Space") && p.onGround) {
+      p.vy = PLAYER.jumpV;
+      p.onGround = false;
     }
 
-    if (GAME.dashUnlocked && down("ShiftLeft") && player.dashCd <= 0) {
-      player.vx = player.facing * (maxSpeed * 2.2);
-      player.dashCd = 1.0;
+    // move + collide
+    moveAndCollide(p, dt);
+
+    // world clamp
+    p.x = clamp(p.x, 0, GAME.worldW - p.w);
+    if (p.y > VIEW_H + 400) {
+      // fell -> respawn with penalty
+      p.hp = Math.max(1, p.hp - 1);
+      resetPlayer(120, FLOOR_Y - PLAYER.h);
+      setToast("Fell! -1 HP", 1.2);
+      updateHUD();
     }
 
-    if (down("KeyF")) {
-      if (player.throwCd <= 0) throwWeapon();
+    // throw
+    if (down("KeyF") && p.throwCd <= 0) {
+      p.throwCd = PLAYER.throwCd;
+      const spd = 720;
+      GAME.projectiles.push({
+        x: p.x + p.w/2 + p.face * 18,
+        y: p.y + 22,
+        vx: p.face * spd,
+        vy: -120,
+        w: 28, h: 28,
+        t: 1.8,
+        dmg: p.throwDmg
+      });
     }
+  }
 
-    if (GAME.stage === 1 && !GAME.tutorial.move) {
-      if (Math.abs(player.vx) > 40) {
-        GAME.tutorial.move = true;
-        setTutorialChecks();
-      }
-    }
-
-    // physics
-    player.vy += PHYS.gravity * dt;
-    resolvePlatformCollisions(player, dt);
-
-    if (!wasGround && player.onGround) player.landedT = 0.12;
-
-    // pickups
-    for (let i = GAME.pickups.length - 1; i >= 0; i--) {
-      const p = GAME.pickups[i];
-      if (rectsOverlap(player, p)) {
-        if (p.kind === "coin") {
-          GAME.coins += p.value;
-          GAME.pickups.splice(i, 1);
-          updateHud();
-        }
-      }
-    }
-
-    // enemies
-    for (let i = GAME.enemies.length - 1; i >= 0; i--) {
-      const e = GAME.enemies[i];
-
-      enemyThink(e, dt);
-
-      e.vy += PHYS.gravity * dt;
-      resolvePlatformCollisions(e, dt);
-
-      // tighten anchored enemies to platform
-      if (e.platform) {
-        const desiredY = e.platform.y - e.h;
-        if (Math.abs(e.y - desiredY) < 10) {
-          e.y = desiredY;
-          e.vy = 0;
-          e.onGround = true;
-        }
-      }
-
-      if (rectsOverlap(player, e)) hurtPlayer(e.damage);
-
-      if (e.hp <= 0) {
-        GAME.enemies.splice(i, 1);
-        if (GAME.exitLocked && GAME.enemies.every((en) => !en.isBoss)) {
-          GAME.exitLocked = false;
-        }
-      }
-    }
-
-    // projectiles
+  // =========================
+  // Projectiles
+  // =========================
+  function updateProjectiles(dt) {
+    // player throws
     for (let i = GAME.projectiles.length - 1; i >= 0; i--) {
       const pr = GAME.projectiles[i];
-      pr.life -= dt;
-      pr.vy += PHYS.gravity * 0.55 * dt;
+      pr.t -= dt;
+      pr.vy += GRAVITY * 0.35 * dt;
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
 
-      // hit platforms
-      for (const p of GAME.platforms) {
-        if (rectsOverlap(pr, p)) {
-          pr.vx *= 0.25;
+      // collide with platforms (bounce out)
+      for (const plat of GAME.platforms) {
+        if (rectsOverlap(pr, plat)) {
+          pr.vx *= -0.25;
           pr.vy *= -0.25;
-          pr.life = Math.min(pr.life, 0.25);
-          break;
+          pr.x += pr.vx * dt;
+          pr.y += pr.vy * dt;
         }
       }
 
       // hit enemies
       for (const e of GAME.enemies) {
+        if (e.hp <= 0) continue;
         if (rectsOverlap(pr, e)) {
-          e.hp -= pr.dmg;
-          pr.life = 0;
+          e.hp = Math.max(0, e.hp - pr.dmg);
+          setToast(e.kind === "boss" ? "Boss hit!" : "Hit!", 0.5);
+          GAME.projectiles.splice(i, 1);
           break;
         }
       }
 
-      if (pr.life <= 0) GAME.projectiles.splice(i, 1);
+      if (pr.t <= 0 || pr.x < -200 || pr.x > GAME.worldW + 200 || pr.y > VIEW_H + 300) {
+        GAME.projectiles.splice(i, 1);
+      }
     }
 
-    // exit
-    if (GAME.exit && !GAME.exitLocked) {
-      if (rectsOverlap(player, GAME.exit)) openStageClear();
+    // boss shots
+    for (let i = GAME.bossShots.length - 1; i >= 0; i--) {
+      const s = GAME.bossShots[i];
+      s.t -= dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+
+      // hit player
+      if (rectsOverlap(s, GAME.player) && GAME.player.iT <= 0) {
+        GAME.player.hp = Math.max(0, GAME.player.hp - 1);
+        GAME.player.iT = 0.6;
+        updateHUD();
+        GAME.bossShots.splice(i, 1);
+        continue;
+      }
+
+      if (s.t <= 0 || s.x < -200 || s.x > GAME.worldW + 200 || s.y < -200 || s.y > VIEW_H + 300) {
+        GAME.bossShots.splice(i, 1);
+      }
     }
-
-    // camera
-    const target = clamp(player.x - VIEW_W * 0.35, 0, Math.max(0, GAME.worldW - VIEW_W));
-    GAME.camX = lerp(GAME.camX, target, 0.08);
-
-    updateHud();
   }
 
-  function render() {
-    if (GAME.mode === "boot") return;
+  // =========================
+  // Pickups + Exit
+  // =========================
+  function handlePickups() {
+    const p = GAME.player;
 
-    const t = performance.now() / 1000;
-    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    for (let i = GAME.pickups.length - 1; i >= 0; i--) {
+      const it = GAME.pickups[i];
+      if (!rectsOverlap(p, it)) continue;
 
-    ctx.save();
-    ctx.translate(-GAME.camX, 0);
+      if (it.kind === "coin") {
+        p.coins += it.value;
+        GAME.pickups.splice(i, 1);
+        updateHUD();
+        continue;
+      }
 
-    drawBackground();
+      if (it.kind === "dash") {
+        p.hasDash = true;
+        GAME.pickups.splice(i, 1);
+        setToast("Dash unlocked! (Shift)", 1.7);
+        updateHUD();
+        continue;
+      }
 
-    for (const p of GAME.platforms) drawPlatform(p);
+      if (it.kind === "speed") {
+        p.speedMult = 1.18;
+        GAME.pickups.splice(i, 1);
+        setToast("Speed boost!", 1.3);
+        updateHUD();
+        continue;
+      }
 
-    for (const p of GAME.pickups) {
-      if (p.kind === "coin") drawCoin(p, t);
+      if (it.kind === "flag") {
+        GAME.exitLocked = false;
+        GAME.pickups.splice(i, 1);
+        setToast("Signal acquired — Exit unlocked!", 2.0);
+        continue;
+      }
     }
-
-    if (GAME.exit) drawExit(GAME.exit, t);
-
-    // projectiles
-    for (const pr of GAME.projectiles) {
-      drawSprite(imgs.Weapon, pr, DRAW.weaponScale, 0, { rot: Math.sin(t * 20) * 0.10 });
-    }
-
-    // enemies
-    for (const e of GAME.enemies) {
-      const im = e.type === "enemy2" ? imgs.Enemy2 : imgs.Enemy1;
-      const walk = Math.min(1, Math.abs(e.vx) / 120);
-      const bobY = (walk > 0.05 ? Math.sin(t * 12 + e.bobSeed) : Math.sin(t * 2 + e.bobSeed)) * (2 + 2 * walk);
-      const rot = (walk > 0.05 ? Math.sin(t * 12 + e.bobSeed) : 0) * 0.03;
-
-      drawSprite(im, e, DRAW.enemyScale, DRAW.enemyFootPad, { flip: e.facing < 0, bobY, rot });
-      drawEnemyHp(e);
-    }
-
-    // player animations (no sprite sheet needed)
-    const pIm = imgs[player.char];
-    const speedAbs = Math.abs(player.vx);
-    const walk = Math.min(1, speedAbs / 180);
-
-    const idleBob = Math.sin(t * 2.0) * 1.2;
-    const walkBob = Math.sin(t * 12.0) * (2.2 + 2.2 * walk);
-    const bobY = (walk > 0.05 ? walkBob : idleBob);
-
-    let sx = 1, sy = 1;
-    if (!player.onGround) { sx = 1.05; sy = 0.95; }
-    if (player.landedT > 0) {
-      const k = player.landedT / 0.12;
-      sx = 0.92 + 0.08 * (1 - k);
-      sy = 1.08 - 0.08 * (1 - k);
-    }
-
-    const rot = (walk > 0.10 ? Math.sin(t * 12) * 0.025 * player.facing : 0);
-    const flicker = (player.invuln <= 0 || Math.floor(performance.now() / 90) % 2 === 0);
-
-    if (flicker) {
-      drawSprite(pIm, player, DRAW.playerScale, DRAW.playerFootPad, { flip: player.facing < 0, bobY, rot, sx, sy });
-    }
-
-    ctx.restore();
   }
 
-  function loop(t) {
-    if (!last) last = t;
-    const dt = Math.min(0.033, (t - last) / 1000);
-    last = t;
+  function handleExit() {
+    const p = GAME.player;
+    if (!rectsOverlap(p, GAME.exit)) return;
 
-    update(dt);
-    render();
-    requestAnimationFrame(loop);
-  }
-
-  // ---------- Boot / Start ----------
-  async function boot() {
-    // show boot overlay
-    GAME.mode = "boot";
-    bootOverlay.classList.remove("hidden");
-    menuEl.classList.add("hidden");
-    btnStart.disabled = true;
-
-    bootFill.style.width = "0%";
-    bootText.textContent = "0%";
-    bootHint.textContent = "If stuck: check /assets names (case-sensitive).";
-
-    try {
-      await loadAllAssets((loaded, total) => {
-        const pct = Math.floor((loaded / total) * 100);
-        bootFill.style.width = pct + "%";
-        bootText.textContent = pct + "%";
-      });
-    } catch (err) {
-      console.error(err);
-      bootHint.textContent = "Asset load failed. Open DevTools Console for missing file name.";
-      bootText.textContent = "ERROR";
+    if (GAME.exitLocked) {
+      setToast(stageIsBoss(GAME.level) ? "Exit locked — defeat the boss!" : "Exit locked — grab the Signal Flag!", 1.4);
       return;
     }
 
-    // hide boot, show menu
-    bootOverlay.classList.add("hidden");
+    if (!GAME.stageCleared) {
+      GAME.stageCleared = true;
+      beginTransitionToNextLevel();
+    }
+  }
 
-    buildCharacterGrid();
-    updateHud();
-    updatePlayerHpHud();
+  // =========================
+  // Transition (5 seconds)
+  // =========================
+  let transT = 0;
+  let transDur = 5.0;
+  let nextLevelPrepared = false;
 
-    GAME.mode = "menu";
-    menuEl.classList.remove("hidden");
+  function beginTransitionToNextLevel() {
+    setMode("TRANSITION");
+    transT = 0;
+    transDur = 5.0;
+    nextLevelPrepared = false;
+    transBar.style.width = "0%";
+    transText.textContent = "0%";
+
+    // prepare next level immediately (so it’s ready by the end)
+    GAME.level += 1;
+    stageGenerate(GAME.level);
+    nextLevelPrepared = true;
+
+    // shop becomes available after clearing the previous stage
+    GAME.shopAvailable = true;
+  }
+
+  function updateTransition(dt) {
+    transT += dt;
+    const pct = clamp(transT / transDur, 0, 1);
+    transBar.style.width = `${Math.floor(pct * 100)}%`;
+    transText.textContent = `${Math.floor(pct * 100)}%`;
+
+    if (pct >= 1) {
+      // after loading: open shop (once) then play
+      if (GAME.shopAvailable) {
+        openShop();
+      } else {
+        setMode("PLAY");
+      }
+    }
+  }
+
+  // =========================
+  // Rendering
+  // =========================
+  function drawBackground() {
+    const bg = imgs.Background_Pic;
+    if (bg && bg.complete && bg.naturalWidth) {
+      // cover-like draw
+      const scale = Math.max(VIEW_W / bg.naturalWidth, VIEW_H / bg.naturalHeight);
+      const dw = bg.naturalWidth * scale;
+      const dh = bg.naturalHeight * scale;
+      const dx = (VIEW_W - dw) / 2;
+      const dy = (VIEW_H - dh) / 2;
+      ctx.drawImage(bg, dx, dy, dw, dh);
+    } else {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0,0,VIEW_W,VIEW_H);
+    }
+  }
+
+  function drawPlatformRect(r) {
+    const img = imgs.Platform;
+    if (img && img.complete && img.naturalWidth) {
+      ctx.drawImage(img, r.x - GAME.camX, r.y, r.w, r.h);
+    } else {
+      ctx.fillStyle = "#3a3a3a";
+      ctx.fillRect(r.x - GAME.camX, r.y, r.w, r.h);
+    }
+  }
+
+  function drawExit() {
+    const img = imgs.Exit_Door;
+    const x = GAME.exit.x - GAME.camX;
+    const y = GAME.exit.y;
+    const scale = 1.65;
+
+    if (img && img.complete && img.naturalWidth) {
+      ctx.drawImage(img, x, y - 10, GAME.exit.w * scale, GAME.exit.h * scale);
+    } else {
+      ctx.fillStyle = "#ddd";
+      ctx.fillRect(x, y, GAME.exit.w, GAME.exit.h);
+    }
+
+    // lock indicator
+    if (GAME.exitLocked) {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(x, y - 28, 160, 22);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = '10px "Press Start 2P", monospace';
+      ctx.fillText("LOCKED", x + 6, y - 12);
+    }
+  }
+
+  function drawCoin(it, t) {
+    const img = imgs.Coin;
+    const bob = Math.sin(t * 6) * 3;
+    const x = it.x - GAME.camX;
+    const y = it.y + bob;
+
+    if (img && img.complete && img.naturalWidth) {
+      ctx.drawImage(img, x, y, 26, 26);
+    } else {
+      ctx.fillStyle = "gold";
+      ctx.beginPath();
+      ctx.arc(x + 12, y + 12, 12, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawPickup(it, t) {
+    if (it.kind === "coin") return drawCoin(it, t);
+
+    if (it.kind === "flag") {
+      const img = imgs.CheckpointFlag;
+      const x = it.x - GAME.camX;
+      const y = it.y;
+      const scale = 1.4;
+      if (img && img.complete && img.naturalWidth) {
+        ctx.drawImage(img, x, y, it.w * scale, it.h * scale);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(x, y, it.w, it.h);
+      }
+      return;
+    }
+
+    if (it.kind === "dash") {
+      const img = imgs.Powerup_Dash;
+      const x = it.x - GAME.camX;
+      const y = it.y;
+      if (img && img.complete && img.naturalWidth) ctx.drawImage(img, x, y, 38, 38);
+      else { ctx.fillStyle="#7aa2ff"; ctx.fillRect(x,y,36,36); }
+      return;
+    }
+
+    if (it.kind === "speed") {
+      const img = imgs.Powerup_Speedboost;
+      const x = it.x - GAME.camX;
+      const y = it.y;
+      if (img && img.complete && img.naturalWidth) ctx.drawImage(img, x, y, 38, 38);
+      else { ctx.fillStyle="#55ffcc"; ctx.fillRect(x,y,36,36); }
+      return;
+    }
+  }
+
+  function drawHPBar(x, y, hp, maxHp, label = "") {
+    const seg = 12;
+    const gap = 3;
+    const w = maxHp * (seg + gap) + 6;
+    const h = 18;
+
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.strokeRect(x, y, w, h);
+
+    for (let i = 0; i < maxHp; i++) {
+      const sx = x + 3 + i * (seg + gap);
+      const sy = y + 3;
+      ctx.fillStyle = (i < hp) ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.14)";
+      ctx.fillRect(sx, sy, seg, 12);
+    }
+
+    if (label) {
+      ctx.font = '10px "Press Start 2P", monospace';
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText(label, x - 44, y + 13);
+    }
+  }
+
+  function drawEntitySprite(imgKey, ent, drawW, drawH) {
+    const img = imgs[imgKey];
+    const dx = ent.x - GAME.camX + (ent.w - drawW) / 2;
+    const dy = ent.y + (ent.h - drawH);
+    if (img && img.complete && img.naturalWidth) {
+      // face flip
+      ctx.save();
+      ctx.translate(dx + drawW / 2, dy + drawH / 2);
+      ctx.scale(ent.face >= 0 ? 1 : -1, 1);
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(ent.x - GAME.camX, ent.y, ent.w, ent.h);
+    }
+  }
+
+  function render(t) {
+    const time = t / 1000;
+
+    // camera
+    const p = GAME.player;
+    GAME.camX = clamp(p.x + p.w / 2 - VIEW_W / 2, 0, Math.max(0, GAME.worldW - VIEW_W));
+
+    drawBackground();
+
+    // platforms (skip huge ground draw to reduce visual clutter; still collides)
+    for (let i = 1; i < GAME.platforms.length; i++) {
+      drawPlatformRect(GAME.platforms[i]);
+    }
+    // ground: draw as repeated platform for looks
+    drawPlatformRect({ x: 0, y: FLOOR_Y, w: GAME.worldW, h: PLATFORM_H });
+
+    // pickups
+    for (const it of GAME.pickups) drawPickup(it, time);
+
+    // exit
+    drawExit();
+
+    // enemies
+    for (const e of GAME.enemies) {
+      if (e.hp <= 0) continue;
+
+      if (e.kind === "boss") {
+        drawEntitySprite(e.bossType === "enemy2" ? "Enemy2" : "Enemy1", e, BOSS.drawW, BOSS.drawH);
+        // boss hp bar top center
+        drawHPBar(VIEW_W/2 - 90, 16, Math.ceil((e.hp / e.maxHp) * 10), 10, "BOSS");
+      } else {
+        const key = e.kind === "enemy2" ? "Enemy2" : "Enemy1";
+        drawEntitySprite(key, e, ENEMY.drawW, ENEMY.drawH);
+
+        // enemy hp above head (small)
+        const segs = 6;
+        const hpSeg = Math.max(0, Math.ceil((e.hp / e.maxHp) * segs));
+        drawHPBar((e.x - GAME.camX) - 8, e.y - 18, hpSeg, segs);
+      }
+    }
+
+    // player
+    drawEntitySprite(GAME.player.charKey, GAME.player, PLAYER.drawW, PLAYER.drawH);
+
+    // player HP bottom right
+    drawHPBar(VIEW_W - 190, VIEW_H - 50, GAME.player.hp, GAME.player.maxHp, "HP");
+
+    // projectiles
+    for (const pr of GAME.projectiles) {
+      const img = imgs.Weapon;
+      const x = pr.x - GAME.camX;
+      const y = pr.y;
+      if (img && img.complete && img.naturalWidth) ctx.drawImage(img, x, y, 32, 32);
+      else { ctx.fillStyle="#fff"; ctx.fillRect(x,y,pr.w,pr.h); }
+    }
+
+    // boss shots
+    for (const s of GAME.bossShots) {
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(s.x - GAME.camX, s.y, s.w, s.h);
+    }
+
+    // toast
+    if (GAME.toastT > 0 && GAME.toastText) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, 20, VIEW_W, 42);
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.font = '12px "Press Start 2P", monospace';
+      ctx.textAlign = "center";
+      ctx.fillText(GAME.toastText, VIEW_W / 2, 50);
+      ctx.restore();
+    }
+  }
+
+  // =========================
+  // Main update loop
+  // =========================
+  let lastT = performance.now();
+
+  function update(dt) {
+    if (GAME.toastT > 0) GAME.toastT = Math.max(0, GAME.toastT - dt);
+
+    if (GAME.mode === "TRANSITION") {
+      updateTransition(dt);
+      return;
+    }
+    if (GAME.mode !== "PLAY") return;
+
+    // player
+    updatePlayer(dt);
+
+    // enemies
+    for (let i = GAME.enemies.length - 1; i >= 0; i--) {
+      const e = GAME.enemies[i];
+      if (e.hp <= 0) {
+        // if boss died -> unlock exit
+        if (e.kind === "boss") {
+          GAME.exitLocked = false;
+          setToast("Boss defeated — Exit unlocked!", 2.2);
+        }
+        GAME.enemies.splice(i, 1);
+        continue;
+      }
+
+      if (e.kind === "boss") updateBoss(e, dt);
+      else updateEnemyAI(e, dt);
+    }
+
+    // projectiles
+    updateProjectiles(dt);
+
+    // pickups
+    handlePickups();
+
+    // exit
+    handleExit();
+
+    // dead?
+    if (GAME.player.hp <= 0) {
+      setToast("GAME OVER — restarting level", 2.0);
+      restartLevel();
+    }
+
+    updateHUD();
+  }
+
+  function loop(t) {
+    const dt = clamp((t - lastT) / 1000, 0, 0.033);
+    lastT = t;
+
+    update(dt);
+    render(t);
 
     requestAnimationFrame(loop);
   }
 
-  // ---------- Menu startup fixes ----------
-  hideOverlays();
-  tutorialBox.classList.add("hidden");
-  stageClearOverlay.classList.add("hidden");
-  shopOverlay.classList.add("hidden");
-  pauseOverlay.classList.add("hidden");
-  loadingOverlay.classList.add("hidden");
+  // =========================
+  // Start / Restart
+  // =========================
+  function startNewRun() {
+    GAME.level = 1;
+    GAME.player.hp = GAME.player.maxHp;
+    GAME.player.coins = 0;
+    GAME.player.hasDash = false;
+    GAME.player.throwDmg = 18;
+    stageGenerate(GAME.level);
+    setMode("PLAY");
+  }
 
-  // shop/pause buttons already wired above
+  function restartLevel() {
+    // Keep player progression (coins, maxHp, dash unlock etc) but replay the stage
+    const saved = {
+      coins: GAME.player.coins,
+      maxHp: GAME.player.maxHp,
+      hp: Math.min(GAME.player.hp, GAME.player.maxHp),
+      hasDash: GAME.player.hasDash,
+      throwDmg: GAME.player.throwDmg
+    };
+
+    stageGenerate(GAME.level);
+
+    GAME.player.coins = saved.coins;
+    GAME.player.maxHp = saved.maxHp;
+    GAME.player.hp = saved.hp;
+    GAME.player.hasDash = saved.hasDash;
+    GAME.player.throwDmg = saved.throwDmg;
+
+    setToast("Level restarted", 1.0);
+    updateHUD();
+  }
+
+  // =========================
+  // Boot sequence
+  // =========================
+  async function boot() {
+    setMode("BOOT");
+    await loadAllImages((p) => {
+      const pct = Math.floor(p * 100);
+      bootBar.style.width = `${pct}%`;
+      bootPct.textContent = `${pct}%`;
+    });
+
+    // Build select UI
+    buildCharSelect();
+    setMode("SELECT");
+
+    // Wire pause overlay buttons
+    btnResume.onclick = () => { if (GAME.mode === "PAUSE") setMode("PLAY"); };
+    btnRestart.onclick = () => { if (GAME.mode === "PAUSE") { restartLevel(); setMode("PLAY"); } };
+  }
+
   boot();
+  requestAnimationFrame(loop);
 
 })();
