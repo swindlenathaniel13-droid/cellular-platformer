@@ -1,143 +1,110 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- 8-bit-ish font -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="page">
+  <div class="shell">
     <header class="topbar">
-      <div class="brand">CELLULAR PLATFORMER</div>
+      <div class="brand">Cellular Platformer</div>
       <div class="controls">
         Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
       </div>
     </header>
 
-    <div class="frame">
+    <div class="stage">
       <canvas id="game" width="1280" height="720"></canvas>
 
-      <!-- BOOT LOADER (loads assets before menu) -->
-      <div id="bootOverlay" class="overlay">
+      <!-- Boot / loading overlay -->
+      <div id="bootOverlay" class="overlay show">
         <div class="panel">
           <div class="title">CELLULAR PLATFORMER</div>
           <div class="sub">Loading assets…</div>
           <div class="bar">
-            <div id="bootFill" class="fill" style="width:0%"></div>
+            <div id="bootBar" class="barFill"></div>
           </div>
-          <div id="bootText" class="mono">0%</div>
-          <div id="bootHint" class="hint mono">If stuck: check /assets names (case-sensitive)</div>
+          <div id="bootPct" class="pct">0%</div>
         </div>
       </div>
 
-      <!-- MENU / CHARACTER SELECT -->
-      <div id="menu" class="overlay hidden">
+      <!-- Character select -->
+      <div id="selectOverlay" class="overlay">
         <div class="panel wide">
           <div class="title">CHOOSE YOUR CHARACTER</div>
-          <div class="sub mono">Pick one, then Start.</div>
-
-          <div id="charGrid" class="char-grid"></div>
-
+          <div class="sub">Pick one, then press START</div>
+          <div id="charRow" class="charRow"></div>
           <div class="row">
             <button id="btnStart" class="btn primary" disabled>START</button>
           </div>
-
-          <div class="hint mono">Assets must be in <b>/assets</b>.</div>
+          <div class="hint">Assets must be in <span class="mono">/assets</span>.</div>
         </div>
       </div>
 
-      <!-- Tutorial overlay -->
-      <div id="tutorialBox" class="tutorial hidden">
-        <div class="t-title">HOW TO PLAY</div>
-        <div class="t-line"><span id="tutMove" class="check">□</span> Move: A/D or ←/→</div>
-        <div class="t-line"><span id="tutJump" class="check">□</span> Jump: Space</div>
-        <div class="t-line"><span id="tutThrow" class="check">□</span> Throw: F</div>
-        <div class="t-sub mono">Complete the checks to hide this.</div>
+      <!-- Tutorial overlay (Stage 1) -->
+      <div id="tutorialOverlay" class="tutorial hidden">
+        <div class="tTitle">HOW TO PLAY</div>
+        <label><input type="checkbox" id="tMove"> Move (A/D or ←/→)</label>
+        <label><input type="checkbox" id="tJump"> Jump (Space)</label>
+        <label><input type="checkbox" id="tThrow"> Throw (F)</label>
+        <div class="tNote">Complete all to hide this box.</div>
       </div>
 
       <!-- Pause overlay -->
-      <div id="pauseOverlay" class="overlay hidden">
+      <div id="pauseOverlay" class="overlay">
         <div class="panel">
           <div class="title">PAUSED</div>
+          <div class="sub">Take a breath. The robots aren’t.</div>
           <div class="row">
             <button id="btnResume" class="btn primary">RESUME</button>
-            <button id="btnRestart" class="btn">RESTART STAGE</button>
-            <button id="btnBackMenu" class="btn">MAIN MENU</button>
+            <button id="btnRestart" class="btn">RESTART LEVEL</button>
           </div>
+          <div class="hint">Press <span class="mono">Esc</span> to toggle.</div>
         </div>
       </div>
 
-      <!-- Stage clear overlay -->
-      <div id="stageClearOverlay" class="overlay hidden">
-        <div class="panel">
-          <div id="stageClearTitle" class="title">STAGE CLEARED</div>
-          <div id="stageClearSub" class="sub mono">Shop available once per stage.</div>
-          <div class="row">
-            <button id="btnShop" class="btn primary">SHOP</button>
-            <button id="btnNextStage" class="btn">NEXT STAGE</button>
-            <button id="btnClearRestart" class="btn">RESTART</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Shop overlay -->
-      <div id="shopOverlay" class="overlay hidden">
+      <!-- Shop overlay (after clearing a stage) -->
+      <div id="shopOverlay" class="overlay">
         <div class="panel wide">
-          <div class="shop-head">
-            <img id="shopkeeperImg" class="shopkeeper" alt="Edgar" />
-            <div>
-              <div class="title">SHOP</div>
-              <div class="sub mono">Edgar: “Spend your coins wisely.”</div>
-              <div class="mono">Coins: <span id="shopCoins">0</span></div>
-              <div class="hint mono">Shop is available once per stage (after clearing).</div>
-            </div>
+          <div class="title">SHOP</div>
+          <div class="sub">Edgar: “Spend your coins wisely.”</div>
+          <div id="shopCoins" class="coinsLine">Coins: 0</div>
+          <div id="shopList" class="shopList"></div>
+          <div class="row">
+            <button id="btnShopContinue" class="btn primary">CONTINUE</button>
           </div>
-
-          <div id="shopList" class="shop-list"></div>
-
-          <div class="row right">
-            <button id="btnShopBack" class="btn primary">BACK</button>
-          </div>
+          <div class="hint">Shop is available once per cleared stage.</div>
         </div>
       </div>
 
-      <!-- Next-stage loading bar (5–10 sec) -->
-      <div id="loadingOverlay" class="overlay hidden">
+      <!-- Stage transition overlay -->
+      <div id="transitionOverlay" class="overlay">
         <div class="panel">
           <div class="title">LOADING NEXT STAGE</div>
+          <div class="sub">Routing signal…</div>
           <div class="bar">
-            <div id="loadingFill" class="fill" style="width:0%"></div>
+            <div id="transBar" class="barFill"></div>
           </div>
-          <div class="sub mono">Generating platforms…</div>
+          <div id="transText" class="pct">0%</div>
         </div>
       </div>
 
-      <!-- HUD (bottom left) -->
-      <div class="hud">
-        <div id="hudStage" class="pill">Level: 1</div>
-        <div id="hudCoins" class="pill">Coins: 0</div>
-        <div id="hudDash" class="pill">Dash: Locked</div>
-        <div id="hudSpeed" class="pill">Speed: Normal</div>
-        <div id="hudThrow" class="pill">Throw: Ready</div>
-      </div>
-
-      <!-- Player HP (top right) -->
-      <div class="hp-hud">
-        <div class="hp-label">HP</div>
-        <div id="hpBlocks" class="hp-blocks"></div>
-      </div>
     </div>
 
-    <footer class="foot mono">Made with HTML Canvas · Hosted on GitHub Pages</footer>
+    <footer class="bottombar">
+      <div id="hudLeft" class="hudPills"></div>
+      <div class="foot">Made with HTML Canvas · Hosted on GitHub Pages</div>
+      <div id="hudRight" class="hudPills"></div>
+    </footer>
   </div>
 
-  <script src="main.js" defer></script>
+  <script src="main.js"></script>
 </body>
 </html>
