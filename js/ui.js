@@ -1,234 +1,244 @@
-:root{
-  --bg1:#050814;
-  --bg2:#0b1230;
-  --panel: rgba(10,14,30,0.72);
-  --panel2: rgba(10,14,30,0.88);
-  --stroke: rgba(180,210,255,0.35);
-  --stroke2: rgba(180,210,255,0.55);
-  --text: rgba(245,250,255,0.92);
-  --muted: rgba(245,250,255,0.65);
-  --good: rgba(120,255,190,0.95);
-  --bad: rgba(255,110,110,0.95);
-  --warn: rgba(255,210,120,0.95);
+const $ = (sel) => document.querySelector(sel);
+
+export function initUI(state) {
+  state.ui = {
+    root: $("#uiRoot"),
+    toastEl: null,
+    current: null,
+  };
+
+  state.ui.toast = (msg, ms = 1200) => {
+    if (!state.ui.toastEl) {
+      const el = document.createElement("div");
+      el.className = "toast";
+      state.ui.root.appendChild(el);
+      state.ui.toastEl = el;
+    }
+    state.ui.toastEl.textContent = msg;
+    state.ui.toastEl.style.display = "block";
+    clearTimeout(state.ui._toastT);
+    state.ui._toastT = setTimeout(() => {
+      if (state.ui.toastEl) state.ui.toastEl.style.display = "none";
+    }, ms);
+  };
+
+  state.ui.clear = () => {
+    const keep = state.ui.toastEl;
+    state.ui.root.innerHTML = "";
+    if (keep) state.ui.root.appendChild(keep);
+    state.ui.current = null;
+  };
+
+  state.ui.setOverlay = (el) => {
+    state.ui.clear();
+    state.ui.root.appendChild(el);
+    state.ui.current = el;
+  };
+
+  state.ui.updateHUD = () => updateHUD(state);
+
+  return state.ui;
 }
 
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
-body{
-  margin:0;
-  background: radial-gradient(1200px 700px at 20% 0%, #142157 0%, var(--bg1) 55%) ,
-              radial-gradient(1000px 600px at 90% 30%, #0f2a4c 0%, var(--bg2) 60%);
-  color:var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+export function updateHUD(state) {
+  const levelEl = document.getElementById("hudLevel");
+  const coinsEl = document.getElementById("hudCoins");
+  const dashEl = document.getElementById("hudDash");
+  const speedEl = document.getElementById("hudSpeed");
+  const throwEl = document.getElementById("hudThrow");
+  if (!levelEl) return;
+
+  levelEl.textContent = `Level: ${state.levelIndex}`;
+  coinsEl.textContent = `Coins: ${state.coins}`;
+  dashEl.textContent = state.player?.dashUnlocked ? "Dash: Ready" : "Dash: Locked";
+  speedEl.textContent = state.player?.speedBoost > 0 ? "Speed: Boost" : "Speed: Normal";
+  throwEl.textContent = state.player?.throwCd > 0 ? "Throw: Cooling" : "Throw: Ready";
 }
 
-.page{
-  max-width: 1500px;
-  margin: 0 auto;
-  padding: 18px;
+export function showBootLoading(state, progress01, msg = "Loading assets…") {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">CELLULAR PLATFORMER</div>
+      <div class="panel__sub">${msg}</div>
+      <div class="progress"><div style="width:${Math.floor(progress01 * 100)}%"></div></div>
+      <div class="panel__sub" style="margin-top:10px;color:rgba(245,250,255,0.55);">
+        GitHub Pages is case-sensitive. /assets and filenames must match exactly.
+      </div>
+    </div>
+  `;
+  state.ui.setOverlay(overlay);
 }
 
-.topbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding: 16px 18px;
-  border: 1px solid var(--stroke);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(25,40,90,0.35), rgba(10,14,30,0.55));
-  box-shadow: 0 18px 70px rgba(0,0,0,0.45);
-  margin-bottom: 14px;
-}
-.brand{
-  font-family: "Press Start 2P", monospace;
-  font-size: 16px;
-  letter-spacing: 1px;
-}
-.hint{
-  font-size: 12px;
-  color: var(--muted);
-  text-align:right;
-  line-height: 1.35;
+export function showPressStart(state, onStart) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">CELLULAR PLATFORMER</div>
+      <div class="panel__sub">Assets loaded. Press START.</div>
+      <div class="btnbar"><button id="btnBootStart">START</button></div>
+    </div>
+  `;
+  overlay.querySelector("#btnBootStart").onclick = () => onStart?.();
+  state.ui.setOverlay(overlay);
 }
 
-.shell{
-  border: 1px solid var(--stroke);
-  border-radius: 18px;
-  background: rgba(0,0,0,0.18);
-  padding: 14px;
+export function showCharacterSelect(state, characters, onPick) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+
+  const cards = characters.map(c => `
+    <div class="card">
+      <img src="${c.preview}" alt="${c.label}">
+      <div class="name">${c.label}</div>
+      <button data-pick="${c.key}">Select</button>
+    </div>
+  `).join("");
+
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">CHOOSE YOUR CHARACTER</div>
+      <div class="panel__sub">Tutorial runs once on Level 1.</div>
+      <div class="row">${cards}</div>
+    </div>
+  `;
+
+  overlay.querySelectorAll("button[data-pick]").forEach(btn => {
+    btn.onclick = () => onPick?.(btn.getAttribute("data-pick"));
+  });
+
+  state.ui.setOverlay(overlay);
 }
 
-.gamewrap{
-  position:relative;
-  border-radius: 18px;
-  overflow:hidden;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.55);
+export function showPauseMenu(state, handlers) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">PAUSED</div>
+      <div class="panel__sub">Esc resumes.</div>
+      <div class="btnbar" style="justify-content:flex-start;">
+        <button id="btnResume">Resume</button>
+        <button id="btnRestartLevel">Restart Level</button>
+        <button id="btnRestartRun">Restart Run</button>
+      </div>
+      <div class="panel__sub" style="margin-top:12px;">
+        Restart Level resets this stage’s pickups/enemies/damage.
+        Restart Run returns to Level 1 (tutorial won’t repeat).
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector("#btnResume").onclick = () => handlers.onResume?.();
+  overlay.querySelector("#btnRestartLevel").onclick = () => handlers.onRestartLevel?.();
+  overlay.querySelector("#btnRestartRun").onclick = () => handlers.onRestartRun?.();
+
+  state.ui.setOverlay(overlay);
 }
 
-canvas#game{
-  width:100%;
-  height:auto;
-  display:block;
-  image-rendering: pixelated;
+export function showConfirm(state, title, body, yesLabel, noLabel, onYes, onNo) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">${title}</div>
+      <div class="panel__sub">${body}</div>
+      <div class="btnbar">
+        <button id="btnNo">${noLabel}</button>
+        <button id="btnYes">${yesLabel}</button>
+      </div>
+    </div>
+  `;
+
+  overlay.querySelector("#btnYes").onclick = () => onYes?.();
+  overlay.querySelector("#btnNo").onclick = () => onNo?.();
+  state.ui.setOverlay(overlay);
 }
 
-.footer{
-  margin-top: 10px;
-  text-align:center;
-  color: rgba(245,250,255,0.55);
-  font-size: 12px;
+export function showStageComplete(state, results, onShop, onNext) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">STAGE COMPLETE</div>
+      <div class="kv"><span>Coins</span><span>${results.coins}</span></div>
+      <div class="kv"><span>Damage</span><span>${results.damage}</span></div>
+      <div class="kv"><span>Time</span><span>${results.time}</span></div>
+      <div class="btnbar">
+        <button id="btnShop">Shop</button>
+        <button id="btnNext">Next Stage</button>
+      </div>
+      <div class="panel__sub" style="margin-top:10px;">Shop available once per stage (after clearing).</div>
+    </div>
+  `;
+  overlay.querySelector("#btnShop").onclick = () => onShop?.();
+  overlay.querySelector("#btnNext").onclick = () => onNext?.();
+  state.ui.setOverlay(overlay);
 }
 
-/* HUD chips */
-.hud{
-  position:absolute;
-  left: 14px;
-  bottom: 14px;
-  display:flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  pointer-events:none;
-}
-.chip{
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(10,14,30,0.65);
-  border: 1px solid rgba(180,210,255,0.22);
-  backdrop-filter: blur(8px);
-  font-size: 12px;
-  font-family: "Press Start 2P", monospace;
+export function showShop(state, shopModel, onBuy, onContinue) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+
+  const rows = shopModel.items.map(it => {
+    const disabled = it.disabled ? "disabled" : "";
+    const sold = it.soldOut ? " (SOLD OUT)" : "";
+    return `
+      <div class="card" style="min-width:260px;">
+        <div class="name">${it.name}${sold}</div>
+        <div class="panel__sub" style="margin:0 0 10px 0;">${it.desc}</div>
+        <div class="kv"><span>Cost</span><span>${it.cost}</span></div>
+        <button data-buy="${it.id}" ${disabled}>BUY</button>
+      </div>
+    `;
+  }).join("");
+
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">SHOP</div>
+      <div class="panel__sub">Edgar: “Spend your coins wisely.”</div>
+      <div class="kv"><span>Coins</span><span>${state.coins}</span></div>
+      <div class="row">${rows}</div>
+      <div class="btnbar"><button id="btnContinue">Continue</button></div>
+    </div>
+  `;
+
+  overlay.querySelectorAll("button[data-buy]").forEach(btn => {
+    btn.onclick = () => onBuy?.(btn.getAttribute("data-buy"));
+  });
+  overlay.querySelector("#btnContinue").onclick = () => onContinue?.();
+  state.ui.setOverlay(overlay);
 }
 
-/* UI Root overlays */
-.uiRoot{
-  position:absolute;
-  inset:0;
-  pointer-events:none;
+export function showNextStageLoading(state, progress01, titleLine) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">${titleLine}</div>
+      <div class="panel__sub">Preparing stage…</div>
+      <div class="progress"><div style="width:${Math.floor(progress01 * 100)}%"></div></div>
+    </div>
+  `;
+  state.ui.setOverlay(overlay);
 }
 
-/* Modal overlay base */
-.overlay{
-  position:absolute;
-  inset:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(6px);
-  pointer-events:auto;
+export function showDeath(state, summary, onRestartRun) {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="panel">
+      <div class="panel__title">YOU DIED</div>
+      <div class="panel__sub">Back to Level 1 (tutorial won’t repeat). Full HP.</div>
+      <div class="kv"><span>Level Reached</span><span>${summary.level}</span></div>
+      <div class="kv"><span>Coins</span><span>${summary.coins}</span></div>
+      <div class="btnbar"><button id="btnRestart">Restart Run</button></div>
+    </div>
+  `;
+  overlay.querySelector("#btnRestart").onclick = () => onRestartRun?.();
+  state.ui.setOverlay(overlay);
 }
-
-.panel{
-  width: min(920px, 92vw);
-  border-radius: 18px;
-  background: var(--panel2);
-  border: 1px solid var(--stroke2);
-  box-shadow: 0 28px 90px rgba(0,0,0,0.55);
-  padding: 18px;
-}
-
-.panel__title{
-  font-family:"Press Start 2P", monospace;
-  font-size: 18px;
-  margin: 0 0 10px 0;
-  letter-spacing: 1px;
-}
-.panel__sub{
-  color: var(--muted);
-  font-size: 12px;
-  margin: 0 0 14px 0;
-  line-height: 1.5;
-}
-
-.row{
-  display:flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.card{
-  flex: 1 1 180px;
-  min-width: 180px;
-  border-radius: 16px;
-  padding: 12px;
-  background: rgba(10,14,30,0.60);
-  border: 1px solid rgba(180,210,255,0.20);
-}
-
-.card img{
-  width: 92px;
-  height: 92px;
-  display:block;
-  margin-bottom: 10px;
-  image-rendering: pixelated;
-}
-
-.card .name{
-  font-family:"Press Start 2P", monospace;
-  font-size: 12px;
-  margin-bottom: 10px;
-}
-
-.btnbar{
-  display:flex;
-  justify-content:flex-end;
-  gap: 10px;
-  margin-top: 14px;
-  flex-wrap: wrap;
-}
-
-button{
-  border: 1px solid rgba(180,210,255,0.25);
-  background: rgba(25,40,90,0.35);
-  color: var(--text);
-  padding: 10px 14px;
-  border-radius: 14px;
-  cursor:pointer;
-  font-family:"Press Start 2P", monospace;
-  font-size: 12px;
-}
-button:hover{ border-color: rgba(180,210,255,0.5); }
-button:disabled{
-  opacity:0.5;
-  cursor:not-allowed;
-}
-
-.progress{
-  width:100%;
-  height: 14px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(180,210,255,0.25);
-  overflow:hidden;
-}
-.progress > div{
-  height:100%;
-  width:0%;
-  background: rgba(120,255,190,0.75);
-}
-
-.kv{
-  display:flex;
-  justify-content:space-between;
-  gap: 12px;
-  font-family:"Press Start 2P", monospace;
-  font-size: 12px;
-  margin: 8px 0;
-}
-.kv span:last-child{ color: var(--good); }
-
-.toast{
-  position:absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(10,14,30,0.88);
-  border: 1px solid rgba(180,210,255,0.35);
-  padding: 10px 14px;
-  border-radius: 14px;
-  font-family:"Press Start 2P", monospace;
-  font-size: 12px;
-  pointer-events:none;
-}
-
