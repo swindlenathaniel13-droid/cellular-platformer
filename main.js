@@ -8,8 +8,8 @@
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
 
-  const VIEW_W = canvas.width;   // 1280
-  const VIEW_H = canvas.height;  // 720
+  const VIEW_W = canvas.width;
+  const VIEW_H = canvas.height;
 
   // =========================
   // Safe DOM getter
@@ -118,7 +118,7 @@
     sec = Math.max(0, sec);
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
-    const ms = Math.floor((sec - Math.floor(sec)) * 10); // tenths
+    const ms = Math.floor((sec - Math.floor(sec)) * 10);
     return `${m}:${String(s).padStart(2, "0")}.${ms}`;
   }
 
@@ -133,7 +133,6 @@
     }
     keys.add(e.code);
 
-    // Stage results: Space/Enter continues immediately
     if (GAME.mode === "STAGE_RESULTS" && (e.code === "Space" || e.code === "Enter")) {
       proceedFromStageResults();
       return;
@@ -147,11 +146,34 @@
   function down(...codes) { return codes.some(c => keys.has(c)); }
 
   // =========================
-  // Constants
+  // Constants / Difficulty Knobs
   // =========================
   const GRAVITY = 2000;
   const FLOOR_Y = 640;
   const PLATFORM_H = 40;
+
+  // Platform difficulty knobs (tweak these safely)
+  const DIFF = {
+    // pits (ground gaps)
+    pitsStartLevel: 2,
+    pitCountBase: 2,
+    pitCountPer2Levels: 1,         // +1 pit every 2 levels
+    pitGapMin: 150,
+    pitGapMax: 240,
+    groundSegMin: 320,
+    groundSegMax: 600,
+
+    // critical path jumps (always doable)
+    gapMin: 160,
+    gapMaxCap: 270,                // keep < ~290 so it’s always doable
+    riseMax: 170,
+    dropMax: 220,
+    platWMin: 320,
+    platWMax: 560,
+
+    // extra side challenge platforms
+    sidePlatChance: 0.35,
+  };
 
   const MOVE_ACCEL = 2600;
   const MOVE_DECEL = 3200;
@@ -175,18 +197,26 @@
     h: 56,
     drawW: 78,
     drawH: 78,
-    speed1: 140,
-    speed2: 170,
-    aggro: 520,
+    speed1: 150,
+    speed2: 180,
+
+    aggro: 620,
     meleeRange: 40,
-    meleeCd: 0.8,
+    meleeCd: 0.85,
+
+    // platform-aware brain
+    edgePad: 8,           // don’t walk right to the edge
+    safeDropMax: 360,     // only drop if there’s a landing within this distance
+    jumpUpMax: 190,       // only jump up to platforms within this rise
+    jumpV: -760,          // enemy jump
+    stuckTime: 1.1,       // if not making progress, try something else
   };
 
   // =========================
   // Game State
   // =========================
   const GAME = {
-    mode: "BOOT", // BOOT, SELECT, PLAY, PAUSE, SHOP, STAGE_RESULTS, TRANSITION
+    mode: "BOOT",
     level: 1,
     worldW: 2600,
     camX: 0,
@@ -198,12 +228,12 @@
     stageCleared: false,
     shopAvailable: false,
 
-    platforms: [],
+    platforms: [],   // {x,y,w,h, kind:'ground'|'plat'}
     pickups: [],
     enemies: [],
     projectiles: [],
 
-    exit: { x: 0, y: 0, w: 110, h: 160 },
+    exit: { x: 0, y: 0, w: 120, h: 180 },
 
     tutorialDone: (localStorage.getItem("cp_tutorialDone") === "1"),
 
@@ -218,7 +248,7 @@
 
     // results screen
     resultsTimer: 0,
-    resultsData: null, // { level, coins, dmg, timeSec }
+    resultsData: null,
 
     player: {
       w: BASE_PLAYER.w,
@@ -271,7 +301,6 @@
     (m === "SHOP") ? show(shopOverlay) : hide(shopOverlay);
     (m === "TRANSITION") ? show(transitionOverlay) : hide(transitionOverlay);
 
-    // Stage results overlay is dynamic
     ensureStageResultsOverlay();
     (m === "STAGE_RESULTS") ? show(stageResultsOverlay) : hide(stageResultsOverlay);
   }
@@ -307,7 +336,6 @@
   let confirmOk = null;
   let confirmCancel = null;
   let confirmOnOk = null;
-  let confirmOnCancel = null;
 
   function ensureConfirmOverlay() {
     if (confirmOverlay) return;
@@ -336,16 +364,16 @@
     confirmCancel.className = "btn ghost";
     confirmCancel.textContent = "Cancel";
     confirmCancel.addEventListener("click", () => {
-      closeConfirm();
-      confirmOnCancel?.();
+      confirmOverlay.classList.remove("show");
     });
 
     confirmOk = document.createElement("button");
     confirmOk.className = "btn";
     confirmOk.textContent = "OK";
     confirmOk.addEventListener("click", () => {
-      closeConfirm();
+      confirmOverlay.classList.remove("show");
       confirmOnOk?.();
+      confirmOnOk = null;
     });
 
     row.appendChild(confirmCancel);
@@ -360,7 +388,7 @@
     stage.appendChild(confirmOverlay);
   }
 
-  function openConfirm({ title, body, okText = "OK", cancelText = "Cancel", showCancel = true, onOk, onCancel }) {
+  function openConfirm({ title, body, okText = "OK", cancelText = "Cancel", showCancel = true, onOk }) {
     ensureConfirmOverlay();
     confirmTitle.textContent = title;
     confirmBody.textContent = body;
@@ -368,14 +396,7 @@
     confirmCancel.textContent = cancelText;
     confirmCancel.style.display = showCancel ? "" : "none";
     confirmOnOk = onOk || null;
-    confirmOnCancel = onCancel || null;
     confirmOverlay.classList.add("show");
-  }
-
-  function closeConfirm() {
-    confirmOverlay?.classList.remove("show");
-    confirmOnOk = null;
-    confirmOnCancel = null;
   }
 
   function isConfirmOpen() {
@@ -410,7 +431,6 @@
     srSub.className = "panel-sub";
     srSub.style.marginTop = "8px";
     srSub.style.whiteSpace = "pre-line";
-    srSub.textContent = "Uploading results to the cell towers…";
 
     srGrid = document.createElement("div");
     srGrid.style.marginTop = "14px";
@@ -467,14 +487,8 @@
     const coinsStage = Math.max(0, GAME.player.coins - GAME.stageCoinsStart);
     const dmgStage = Math.max(0, GAME.stageDamageTaken);
 
-    GAME.resultsData = {
-      level: GAME.level,
-      coins: coinsStage,
-      dmg: dmgStage,
-      timeSec
-    };
+    GAME.resultsData = { level: GAME.level, coins: coinsStage, dmg: dmgStage, timeSec };
 
-    // Fill UI
     srTitle.textContent = `STAGE ${GAME.level} COMPLETE`;
     srSub.textContent = "Signal locked.\nPreparing next stage…";
 
@@ -485,8 +499,7 @@
 
     srHint.textContent = "Press Space/Enter to continue";
 
-    // Quick arcade delay (auto-continue)
-    GAME.resultsTimer = 1.6; // short + snappy
+    GAME.resultsTimer = 1.6;
     setMode("STAGE_RESULTS");
   }
 
@@ -558,7 +571,7 @@
 
     openConfirm({
       title: "RESTART RUN?",
-      body: "This will send you back to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades from this run.",
+      body: "Back to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades.",
       okText: "Restart",
       cancelText: "Back",
       showCancel: true,
@@ -570,7 +583,6 @@
   });
 
   function togglePause() {
-    // don't let ESC interfere with confirm/death/results/transition
     if (GAME.deathPending || isConfirmOpen() || GAME.mode === "STAGE_RESULTS" || GAME.mode === "TRANSITION") return;
 
     if (GAME.mode === "PLAY") setMode("PAUSE");
@@ -593,15 +605,15 @@
 
     const items = [
       { name: "HEAL +3", price: 6, desc: "Restore up to 3 HP.", buy: () => { GAME.player.hp = Math.min(GAME.player.maxHp, GAME.player.hp + 3); } },
-      { name: "+1 MAX HP", price: 10, desc: "Permanent extra HP block (this run).", buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; } },
-      { name: "+ JUMP", price: 10, desc: "Jump a bit higher (this run).", buy: () => { GAME.player.jumpMult = Math.min(1.25, GAME.player.jumpMult + 0.06); } },
-      { name: "UNLOCK DASH", price: 12, desc: "Enable Shift dash (this run).", buy: () => { GAME.player.hasDash = true; } },
-      { name: "DASH COOL↓", price: 12, desc: "Dash cools down faster.", buy: () => { GAME.player.dashCdMult = Math.max(0.7, GAME.player.dashCdMult - 0.08); } },
+      { name: "+1 MAX HP", price: 10, desc: "Permanent extra HP (this run).", buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; } },
+      { name: "+ JUMP", price: 10, desc: "Jump a bit higher.", buy: () => { GAME.player.jumpMult = Math.min(1.25, GAME.player.jumpMult + 0.06); } },
+      { name: "UNLOCK DASH", price: 12, desc: "Enable Shift dash.", buy: () => { GAME.player.hasDash = true; } },
+      { name: "DASH COOL↓", price: 12, desc: "Dash cools faster.", buy: () => { GAME.player.dashCdMult = Math.max(0.7, GAME.player.dashCdMult - 0.08); } },
       { name: "THROW COOL↓", price: 12, desc: "Throw more often.", buy: () => { GAME.player.throwCdMult = Math.max(0.7, GAME.player.throwCdMult - 0.08); } },
       { name: "+ THROW DMG", price: 14, desc: "Home phone hits harder.", buy: () => { GAME.player.throwDmg += 5; } },
       { name: "COIN MAGNET", price: 14, desc: "Coins drift toward you.", buy: () => { GAME.player.magnet = true; } },
-      { name: "ARMOR +1", price: 16, desc: "Reduce damage taken (min 1).", buy: () => { GAME.player.armor = Math.min(1, GAME.player.armor + 1); } },
-      { name: "SPEED BOOST", price: 12, desc: "Faster movement (this stage).", buy: () => { GAME.player.speedMult = 1.18; } },
+      { name: "ARMOR +1", price: 16, desc: "Reduce damage (min 1).", buy: () => { GAME.player.armor = Math.min(1, GAME.player.armor + 1); } },
+      { name: "SPEED BOOST", price: 12, desc: "Faster movement (stage).", buy: () => { GAME.player.speedMult = 1.18; } },
     ];
 
     for (const it of items) {
@@ -655,6 +667,36 @@
             a.y + a.h > b.y);
   }
 
+  function findSupport(ent, epsilon = 4) {
+    // Find platform directly under feet (top surface)
+    const footY = ent.y + ent.h;
+    let best = null;
+    let bestDy = Infinity;
+
+    for (const p of GAME.platforms) {
+      // must be "standing on top"
+      if (footY < p.y - epsilon || footY > p.y + epsilon) continue;
+      // horizontal overlap
+      if (ent.x + ent.w <= p.x + 2 || ent.x >= p.x + p.w - 2) continue;
+
+      const dy = Math.abs(footY - p.y);
+      if (dy < bestDy) { bestDy = dy; best = p; }
+    }
+    return best;
+  }
+
+  function findLandingBelow(x, fromY, maxDrop) {
+    let best = null;
+    let bestY = Infinity;
+    for (const p of GAME.platforms) {
+      if (p.y <= fromY + 8) continue;
+      if (p.y > fromY + maxDrop) continue;
+      if (x < p.x || x > p.x + p.w) continue;
+      if (p.y < bestY) { bestY = p.y; best = p; }
+    }
+    return best;
+  }
+
   function moveAndCollide(ent, dt) {
     ent.onGround = false;
 
@@ -696,10 +738,6 @@
     GAME.toastT = 0;
   }
 
-  function addGround(worldW) {
-    GAME.platforms.push({ x: 0, y: FLOOR_Y, w: worldW, h: VIEW_H - FLOOR_Y });
-  }
-
   function resetPlayerPos(x, y) {
     const p = GAME.player;
     p.w = BASE_PLAYER.w;
@@ -715,73 +753,180 @@
     p.speedMult = 1;
   }
 
+  function addGroundWithPits(rng, level, worldW) {
+    // Level 1: full ground (easy tutorial)
+    if (level < DIFF.pitsStartLevel) {
+      GAME.platforms.push({ x: 0, y: FLOOR_Y, w: worldW, h: VIEW_H - FLOOR_Y, kind: "ground" });
+      return;
+    }
+
+    // Start segment safe
+    let x = 0;
+    const safeStart = 760;
+    GAME.platforms.push({ x: 0, y: FLOOR_Y, w: safeStart, h: VIEW_H - FLOOR_Y, kind: "ground" });
+    x = safeStart;
+
+    const pitCount = clamp(DIFF.pitCountBase + Math.floor(level / 2) * DIFF.pitCountPer2Levels, 2, 9);
+
+    for (let i = 0; i < pitCount; i++) {
+      const segW = DIFF.groundSegMin + Math.floor(rng() * (DIFF.groundSegMax - DIFF.groundSegMin));
+      const gapW = DIFF.pitGapMin + Math.floor(rng() * (DIFF.pitGapMax - DIFF.pitGapMin));
+
+      // ground segment
+      if (x + segW < worldW - 520) {
+        GAME.platforms.push({ x, y: FLOOR_Y, w: segW, h: VIEW_H - FLOOR_Y, kind: "ground" });
+      }
+      x += segW;
+
+      // pit (skip)
+      x += gapW;
+
+      if (x > worldW - 520) break;
+    }
+
+    // End segment safe
+    if (x < worldW) {
+      GAME.platforms.push({ x, y: FLOOR_Y, w: worldW - x, h: VIEW_H - FLOOR_Y, kind: "ground" });
+    }
+  }
+
   function stageGenerate(level) {
     clearWorld();
     const rng = mulberry32(1337 + level * 999);
 
-    GAME.worldW = 2600 + Math.min(1400, level * 240);
-    addGround(GAME.worldW);
+    GAME.worldW = 2600 + Math.min(1600, level * 260);
 
-    GAME.exit.w = 110;
-    GAME.exit.h = 160;
-    GAME.exit.x = GAME.worldW - 240;
-    GAME.exit.y = FLOOR_Y - GAME.exit.h;
+    // ground, but broken (pits) after level 1
+    addGroundWithPits(rng, level, GAME.worldW);
 
-    let x = 420;
-    let y = 520;
-
+    // --- Critical path platforms (always jumpable) ---
     const minY = 380;
     const maxY = 540;
 
-    const count = 9 + Math.min(6, level);
+    // Increase challenge slowly but keep within caps
+    const gapMax = Math.min(DIFF.gapMaxCap, 230 + Math.min(40, level * 6));
+    const gapMin = DIFF.gapMin;
+
+    let x = 520;
+    let y = 520;
+
     const path = [];
+    const count = 9 + Math.min(8, level);
 
     for (let i = 0; i < count; i++) {
-      const w = 420 + Math.floor(rng() * 220);
-      const dx = 240 + Math.floor(rng() * 80);
-      const dy = -60 + Math.floor(rng() * 120);
+      const w = DIFF.platWMin + Math.floor(rng() * (DIFF.platWMax - DIFF.platWMin));
+
+      const dx = gapMin + Math.floor(rng() * (gapMax - gapMin));
+      const dy = -DIFF.riseMax + Math.floor(rng() * (DIFF.riseMax + DIFF.dropMax));
 
       x += dx;
       y = clamp(y + dy, minY, maxY);
 
-      if (x + w > GAME.worldW - 560) break;
+      if (x + w > GAME.worldW - 520) break;
 
-      const plat = { x, y, w, h: PLATFORM_H };
+      const plat = { x, y, w, h: PLATFORM_H, kind: "plat" };
       GAME.platforms.push(plat);
       path.push(plat);
 
-      const cN = 2 + Math.floor(rng() * 4);
+      // coin trail on main path to guide player
+      const cN = 3 + Math.floor(rng() * 4);
       for (let c = 0; c < cN; c++) {
         GAME.pickups.push({ kind: "coin", x: x + 60 + c * 90, y: y - 46, w: 24, h: 24, value: 1 });
       }
 
-      if (i > 0 && rng() < 0.55) {
-        const type = rng() < 0.6 ? "enemy1" : "enemy2";
-        GAME.enemies.push({
+      // optional “side” platform for extra coins (challenge but optional)
+      if (level >= 2 && rng() < DIFF.sidePlatChance) {
+        const sideW = 220 + Math.floor(rng() * 220);
+        const sideX = x + 40 + Math.floor(rng() * Math.max(10, w - sideW - 60));
+        const sideY = clamp(y - (90 + Math.floor(rng() * 80)), minY, maxY);
+
+        const side = { x: sideX, y: sideY, w: sideW, h: PLATFORM_H, kind: "plat" };
+        GAME.platforms.push(side);
+
+        // reward coins
+        const sc = 2 + Math.floor(rng() * 4);
+        for (let k = 0; k < sc; k++) {
+          GAME.pickups.push({ kind: "coin", x: sideX + 40 + k * 70, y: sideY - 46, w: 24, h: 24, value: 1 });
+        }
+      }
+    }
+
+    // Ensure we always have a “final platform” for exit (prevents “just run to door”)
+    const last = path.length ? path[path.length - 1] : { x: 900, y: 520, w: 720, h: PLATFORM_H };
+    if (!path.length) {
+      const fallback = { ...last, kind: "plat" };
+      GAME.platforms.push(fallback);
+      path.push(fallback);
+    }
+
+    // Final exit platform (bigger, safe)
+    const exitPlat = {
+      x: Math.min(GAME.worldW - 560, last.x + last.w + 180),
+      y: clamp(last.y + (-60 + Math.floor(rng() * 100)), minY, maxY),
+      w: 520,
+      h: PLATFORM_H,
+      kind: "plat"
+    };
+    GAME.platforms.push(exitPlat);
+
+    // Checkpoint flag placed near end of critical path (unlocks exit)
+    GAME.pickups.push({ kind: "flag", x: exitPlat.x + exitPlat.w - 120, y: exitPlat.y - 74, w: 48, h: 74 });
+
+    // Exit placed ON the final platform, fully
+    GAME.exit.w = 120;
+    GAME.exit.h = 180;
+    GAME.exit.x = exitPlat.x + exitPlat.w - 190;
+    GAME.exit.y = exitPlat.y - GAME.exit.h;
+
+    // Enemies: spawn ON platforms (not ground), platform-aware patrol bounds
+    const enemyBudget = clamp(1 + Math.floor(level * 1.2), 1, 10);
+    let spawned = 0;
+
+    for (let i = 0; i < GAME.platforms.length && spawned < enemyBudget; i++) {
+      const p = GAME.platforms[i];
+      if (p.kind !== "plat") continue;
+      if (p === exitPlat) continue;
+      if (p.x < 700) continue;
+
+      if (rng() < 0.38) {
+        const type = rng() < 0.62 ? "enemy1" : "enemy2";
+        const ex = p.x + 80 + Math.floor(rng() * Math.max(10, p.w - 160));
+        const e = {
           kind: type,
-          x: x + 90,
-          y: y - ENEMY.h,
+          x: ex,
+          y: p.y - ENEMY.h,
           w: ENEMY.w,
           h: ENEMY.h,
           vx: 0, vy: 0,
           onGround: true,
-          hp: type === "enemy2" ? 40 : 30,
-          maxHp: type === "enemy2" ? 40 : 30,
+          hp: type === "enemy2" ? 44 : 34,
+          maxHp: type === "enemy2" ? 44 : 34,
           face: rng() < 0.5 ? 1 : -1,
-          patrolMin: x + 10,
-          patrolMax: x + w - ENEMY.w - 10,
           meleeCd: 0,
-        });
-      }
 
-      if (level >= 2 && rng() < 0.18) GAME.pickups.push({ kind: "dash", x: x + w * 0.5, y: y - 54, w: 36, h: 36 });
-      if (level >= 3 && rng() < 0.16) GAME.pickups.push({ kind: "speed", x: x + w * 0.72, y: y - 54, w: 36, h: 36 });
+          // AI state
+          state: "PATROL",
+          stuckT: 0,
+          lastX: ex,
+
+          // patrol bounds (stay on this platform)
+          patrolMin: p.x + ENEMY.edgePad,
+          patrolMax: p.x + p.w - ENEMY.w - ENEMY.edgePad,
+        };
+        GAME.enemies.push(e);
+        spawned++;
+      }
     }
 
-    const last = path.length ? path[path.length - 1] : { x: 720, y: 520, w: 640, h: PLATFORM_H };
-    if (!path.length) GAME.platforms.push(last);
-
-    GAME.pickups.push({ kind: "flag", x: last.x + last.w - 90, y: last.y - 74, w: 48, h: 74 });
+    // powerups (still)
+    if (level >= 2 && rng() < 0.22) {
+      const pick = path[Math.floor(rng() * path.length)];
+      GAME.pickups.push({ kind: "dash", x: pick.x + pick.w * 0.5, y: pick.y - 54, w: 36, h: 36 });
+    }
+    if (level >= 3 && rng() < 0.20) {
+      const pick = path[Math.floor(rng() * path.length)];
+      GAME.pickups.push({ kind: "speed", x: pick.x + pick.w * 0.72, y: pick.y - 54, w: 36, h: 36 });
+    }
 
     GAME.exitLocked = true;
     setToast("Exit locked — grab the Signal Flag!", 2.0);
@@ -793,7 +938,7 @@
       else tutorialOverlay.classList.add("hidden");
     }
 
-    // ✅ start per-stage stats NOW
+    // stage stats
     GAME.stageStartMs = performance.now();
     GAME.stageCoinsStart = GAME.player.coins;
     GAME.stageDamageTaken = 0;
@@ -825,7 +970,6 @@
     p.dashT = 0;
     p.speedMult = 1;
 
-    // also reset stage stats
     GAME.stageStartMs = performance.now();
     GAME.stageCoinsStart = 0;
     GAME.stageDamageTaken = 0;
@@ -875,7 +1019,7 @@
     p.dashCd = Math.max(0, p.dashCd - dt);
     p.dashT = Math.max(0, p.dashT - dt);
 
-    // tutorial checks -> once completed, never again
+    // tutorial checks
     if (GAME.level === 1 && tutorialOverlay && !tutorialOverlay.classList.contains("hidden")) {
       if (down("ArrowLeft","ArrowRight","KeyA","KeyD")) tMove && (tMove.checked = true);
       if (down("Space")) tJump && (tJump.checked = true);
@@ -914,12 +1058,10 @@
     moveAndCollide(p, dt);
     p.x = clamp(p.x, 0, GAME.worldW - p.w);
 
-    // falling damage
+    // falling reset + damage
     if (p.y > VIEW_H + 400) {
       const dmg = Math.max(1, 1 - p.armor);
       p.hp = Math.max(0, p.hp - dmg);
-
-      // ✅ count stage damage taken
       GAME.stageDamageTaken += dmg;
 
       resetPlayerPos(120, FLOOR_Y - BASE_PLAYER.h);
@@ -943,8 +1085,12 @@
     }
   }
 
+  // =========================
+  // Enemy AI (platform-aware)
+  // =========================
   function updateEnemies(dt) {
     const p = GAME.player;
+    const pPlat = findSupport(p);
 
     for (const e of GAME.enemies) {
       if (e.hp <= 0) continue;
@@ -959,33 +1105,120 @@
       const is2 = e.kind === "enemy2";
       const speed = is2 ? ENEMY.speed2 : ENEMY.speed1;
 
-      let target = 0;
-      if (dist < ENEMY.aggro) target = e.face * speed;
-      else target = e.face * speed * 0.6;
+      const ePlat = findSupport(e);
 
-      if (e.x < e.patrolMin) { e.x = e.patrolMin; e.face = 1; }
-      if (e.x > e.patrolMax) { e.x = e.patrolMax; e.face = -1; }
+      // Stuck detection
+      if (Math.abs(e.x - e.lastX) < 6) e.stuckT += dt;
+      else e.stuckT = 0;
+      e.lastX = e.x;
 
-      e.vx = approach(e.vx, target, 1800 * dt);
+      const aggro = dist < ENEMY.aggro;
 
-      if (dist < ENEMY.meleeRange && e.meleeCd <= 0 && rectsOverlap(e, p)) {
-        const dmg = Math.max(1, 1 - p.armor);
-        if (p.iT <= 0) {
-          p.hp = Math.max(0, p.hp - dmg);
-          p.iT = 0.6;
+      // Decide state
+      if (aggro) e.state = "CHASE";
+      else e.state = "PATROL";
 
-          // ✅ count stage damage taken
-          GAME.stageDamageTaken += dmg;
+      let targetVx = 0;
 
-          setToast(`Ouch! -${dmg}`, 0.7);
-          updateHUD();
+      if (e.state === "PATROL") {
+        // edge-aware patrol within bounds
+        if (e.face > 0 && e.x >= e.patrolMax) e.face = -1;
+        if (e.face < 0 && e.x <= e.patrolMin) e.face = 1;
+        targetVx = e.face * speed * 0.6;
+
+        // if no platform under and falling, stop forcing direction
+        if (!ePlat && e.vy > 0) targetVx = 0;
+      } else {
+        // CHASE logic
+        if (ePlat && pPlat && ePlat === pPlat) {
+          // Same platform: chase directly
+          targetVx = e.face * speed;
+        } else if (ePlat && pPlat) {
+          // Different platforms: try smart drop or smart jump
+          const playerAbove = (pPlat.y + 2) < (ePlat.y);
+          const playerBelow = (pPlat.y - 2) > (ePlat.y);
+
+          if (playerBelow) {
+            // Move toward an edge that can safely drop onto a platform below near player
+            const leftEdgeX = ePlat.x + ENEMY.edgePad;
+            const rightEdgeX = ePlat.x + ePlat.w - ENEMY.edgePad;
+
+            const wantX = clamp(p.x + p.w/2, ePlat.x + 30, ePlat.x + ePlat.w - 30);
+            const goDir = (wantX > (e.x + e.w/2)) ? 1 : -1;
+
+            // If near edge in the direction, only step off if there's a landing
+            const edgeX = (goDir > 0) ? (ePlat.x + ePlat.w - 2) : (ePlat.x + 2);
+            const landing = findLandingBelow(edgeX, ePlat.y, ENEMY.safeDropMax);
+
+            if (landing) {
+              // safe to drop
+              targetVx = goDir * speed;
+            } else {
+              // not safe: chase toward player x but stop before edge
+              const stopMin = leftEdgeX;
+              const stopMax = rightEdgeX - e.w;
+              const desiredX = clamp(wantX - e.w/2, stopMin, stopMax);
+              const dir = desiredX > e.x ? 1 : -1;
+              targetVx = dir * speed * 0.85;
+            }
+          } else if (playerAbove) {
+            // Try jump up to a reachable platform above
+            const rise = ePlat.y - pPlat.y;
+            if (rise <= ENEMY.jumpUpMax && e.onGround) {
+              // Get under player's x (or nearest)
+              const desiredX = clamp(p.x + p.w/2, ePlat.x + 40, ePlat.x + ePlat.w - 40);
+              const dir = desiredX > (e.x + e.w/2) ? 1 : -1;
+              targetVx = dir * speed * 0.85;
+
+              // Jump when reasonably aligned
+              if (Math.abs((e.x + e.w/2) - desiredX) < 22) {
+                e.vy = ENEMY.jumpV;
+              }
+            } else {
+              // can't jump that high: just patrol aggressively (don’t suicide)
+              targetVx = e.face * speed * 0.6;
+            }
+          } else {
+            // weird case: just move toward player x but don’t edge-dive
+            const leftBound = ePlat.x + ENEMY.edgePad;
+            const rightBound = ePlat.x + ePlat.w - e.w - ENEMY.edgePad;
+            const desiredX = clamp(p.x, leftBound, rightBound);
+            const dir = desiredX > e.x ? 1 : -1;
+            targetVx = dir * speed * 0.85;
+          }
+        } else {
+          // If we don't know platforms, default chase but less suicidal
+          targetVx = e.face * speed * 0.8;
         }
-        e.meleeCd = ENEMY.meleeCd;
+
+        // Stuck fallback: flip direction (helps with corner traps)
+        if (e.stuckT > ENEMY.stuckTime) {
+          e.face *= -1;
+          e.stuckT = 0;
+          targetVx = e.face * speed * 0.85;
+        }
+
+        // Melee
+        if (dist < ENEMY.meleeRange && e.meleeCd <= 0 && rectsOverlap(e, p)) {
+          const dmg = Math.max(1, 1 - p.armor);
+          if (p.iT <= 0) {
+            p.hp = Math.max(0, p.hp - dmg);
+            p.iT = 0.6;
+            GAME.stageDamageTaken += dmg;
+            setToast(`Ouch! -${dmg}`, 0.7);
+            updateHUD();
+          }
+          e.meleeCd = ENEMY.meleeCd;
+        }
       }
 
-      moveAndCollide(e, dt);
+      // Smooth to target
+      e.vx = approach(e.vx, targetVx, 1800 * dt);
 
+      moveAndCollide(e, dt);
       e.x = clamp(e.x, 0, GAME.worldW - e.w);
+
+      // If enemy falls off world, recover to ground
       if (e.y > VIEW_H + 300) {
         e.y = FLOOR_Y - e.h;
         e.vy = 0;
@@ -1068,22 +1301,19 @@
 
     if (!GAME.stageCleared) {
       GAME.stageCleared = true;
-
-      // ✅ NEW: show Stage Complete results screen first
       openStageResults();
     }
   }
 
   // =========================
-  // Next Stage Loading (existing)
+  // Next Stage Loading
   // =========================
-  let transT = 0;
   const TRANS_PHASES = [
     { label: "Fading out", dur: 0.7 },
-    { label: "Generating platforms", dur: 2.3 },
-    { label: "Spawning enemies", dur: 1.7 },
+    { label: "Generating platforms", dur: 2.2 },
+    { label: "Spawning enemies", dur: 1.6 },
     { label: "Final checks", dur: 1.0 },
-    { label: "Syncing signal…", dur: 1.3 },
+    { label: "Syncing signal…", dur: 1.2 },
   ];
 
   let transPhase = 0;
@@ -1092,15 +1322,10 @@
   let genDone = false;
 
   function beginTransitionToNextLevel() {
-    // We may already be in TRANSITION mode from proceedFromStageResults,
-    // but keep this safe.
     setMode("TRANSITION");
-
-    transT = 0;
     transPhase = 0;
     phaseT = 0;
     genDone = false;
-
     nextLevelPending = GAME.level + 1;
 
     if (transBar) transBar.style.width = "0%";
@@ -1110,7 +1335,6 @@
   function updateTransition(dt) {
     const phase = TRANS_PHASES[transPhase] || TRANS_PHASES[TRANS_PHASES.length - 1];
     phaseT += dt;
-    transT += dt;
 
     const totalDur = TRANS_PHASES.reduce((a, p) => a + p.dur, 0);
     let doneDur = 0;
@@ -1122,7 +1346,6 @@
     if (transBar) transBar.style.width = `${pctInt}%`;
     if (transText) transText.textContent = `${pctInt}%`;
 
-    // generate once overlay is up
     if (!genDone && transPhase >= 1) {
       genDone = true;
       GAME.level = nextLevelPending;
@@ -1153,7 +1376,7 @@
 
     openConfirm({
       title: "YOU DIED!",
-      body: "Restarting to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades.\n\nRestarting in 2 seconds…",
+      body: "Back to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades.\n\nRestarting in 2 seconds…",
       okText: "Restart Now",
       showCancel: false,
       onOk: () => {
@@ -1197,8 +1420,8 @@
     const x = GAME.exit.x - GAME.camX;
     const y = GAME.exit.y;
 
-    const drawW = 150;
-    const drawH = 210;
+    const drawW = 160;
+    const drawH = 220;
 
     const dx = x + (GAME.exit.w - drawW) / 2;
     const dy = (y + GAME.exit.h) - drawH;
@@ -1291,10 +1514,10 @@
 
     drawBackground();
 
-    for (let i = 1; i < GAME.platforms.length; i++) drawPlatformRect(GAME.platforms[i]);
-    drawPlatformRect({ x: 0, y: FLOOR_Y, w: GAME.worldW, h: PLATFORM_H });
+    for (const plat of GAME.platforms) drawPlatformRect(plat);
 
     for (const it of GAME.pickups) drawPickup(it, time);
+
     drawExit();
 
     for (const e of GAME.enemies) {
@@ -1333,27 +1556,15 @@
   function update(dt) {
     if (GAME.toastT > 0) GAME.toastT = Math.max(0, GAME.toastT - dt);
 
-    // death countdown runs even while paused/confirm is up
     if (GAME.deathPending) {
       GAME.deathTimer -= dt;
-
-      if (confirmBody) {
-        const sec = Math.max(0, Math.ceil(GAME.deathTimer));
-        confirmBody.textContent =
-          "Restarting to Level 1 with FULL HEALTH.\n\n" +
-          "You will LOSE all coins and ALL shop upgrades.\n\n" +
-          `Restarting in ${sec} second${sec === 1 ? "" : "s"}…`;
-      }
-
       if (GAME.deathTimer <= 0) {
-        closeConfirm();
         restartRun("You died — back to Level 1");
         setMode("PLAY");
       }
       return;
     }
 
-    // ✅ Stage Results countdown (auto-continue)
     if (GAME.mode === "STAGE_RESULTS") {
       GAME.resultsTimer -= dt;
       if (GAME.resultsTimer <= 0) proceedFromStageResults();
@@ -1393,6 +1604,7 @@
   // =========================
   function startNewRun() {
     restartRun("Run started");
+    setMode("PLAY");
   }
 
   async function boot() {
