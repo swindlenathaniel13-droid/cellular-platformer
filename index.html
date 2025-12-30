@@ -2,65 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
-  <link rel="stylesheet" href="style.css" />
+
+  <!-- Retro font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./style.css" />
 </head>
+
 <body>
-  <div class="shell">
+  <div class="page">
     <header class="topbar">
-      <div class="title">Cellular Platformer</div>
-      <div class="hint">Move: Left/Right or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
+      <div class="topbar__left">
+        <div class="brand">Cellular Platformer</div>
+      </div>
+      <div class="topbar__right">
+        <div class="hint">
+          Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
+        </div>
+      </div>
     </header>
 
-    <main class="stage">
-      <canvas id="game" width="1280" height="720"></canvas>
+    <main class="shell">
+      <div class="gamewrap">
+        <canvas id="game" width="1400" height="720"></canvas>
 
-      <!-- Boot / Loading -->
-      <div id="screenBoot" class="overlay show">
-        <div class="panel">
-          <div class="panelTitle">CELLULAR PLATFORMER</div>
-          <div class="panelSub">Loading assets...</div>
-          <div class="progressOuter">
-            <div id="bootBar" class="progressInner" style="width:0%"></div>
-          </div>
-          <div id="bootPct" class="panelSmall">0%</div>
-          <div id="bootMsg" class="panelSmall muted">Tip: Assets must be inside /assets</div>
+        <!-- UI overlays mount here -->
+        <div id="uiRoot" class="uiRoot"></div>
+
+        <!-- HUD chips -->
+        <div id="hud" class="hud">
+          <div class="chip" id="hudLevel">Level: 1</div>
+          <div class="chip" id="hudCoins">Coins: 0</div>
+          <div class="chip" id="hudDash">Dash: Locked</div>
+          <div class="chip" id="hudSpeed">Speed: Normal</div>
+          <div class="chip" id="hudThrow">Throw: Ready</div>
         </div>
       </div>
 
-      <!-- Character Select -->
-      <div id="screenSelect" class="overlay">
-        <div class="panel wide">
-          <div class="panelTitle">CHOOSE YOUR CHARACTER</div>
-          <div class="grid" id="charGrid"></div>
-          <div class="row">
-            <button id="btnStart" class="btn primary" disabled>Start</button>
-          </div>
-          <div class="panelSmall muted">Playable: Gilly, Scott, Kevin, Nate. Edgar runs the shop.</div>
-        </div>
-      </div>
-
-      <!-- Touch Controls -->
-      <div id="touchControls" class="touch hidden">
-        <div class="touchLeft">
-          <button class="touchBtn" data-touch="left">◀</button>
-          <button class="touchBtn" data-touch="right">▶</button>
-        </div>
-        <div class="touchRight">
-          <button class="touchBtn" data-touch="jump">⤒</button>
-          <button class="touchBtn" data-touch="throw">F</button>
-          <button class="touchBtn" data-touch="dash">⇧</button>
-        </div>
-      </div>
+      <footer class="footer">
+        Made with HTML Canvas · Hosted on GitHub Pages
+      </footer>
     </main>
-
-    <footer class="footer">
-      <div class="pill" id="hudLeft">Level: 1</div>
-      <div class="pill" id="hudMid">Coins: 0</div>
-      <div class="pill" id="hudRight">HP: 10/10</div>
-      <div class="muted footerText">Made with HTML Canvas · Hosted on GitHub Pages</div>
-    </footer>
   </div>
 
   <script type="module" src="./js/main.js"></script>
