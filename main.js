@@ -216,6 +216,7 @@
       throwDmg: 18,
 
       charKey: "Nate",
+      throwCd: 0,
     }
   };
 
@@ -325,7 +326,6 @@
   function togglePause() {
     if (GAME.mode === "PLAY") setMode("PAUSE");
     else if (GAME.mode === "PAUSE") setMode("PLAY");
-    // ignore Esc in other modes (prevents weirdness)
   }
 
   // =========================
@@ -383,7 +383,6 @@
         if (shopCoins) shopCoins.textContent = `Coins: ${GAME.player.coins}`;
         updateHUD();
 
-        // refresh disabled state
         [...shopList.querySelectorAll("button")].forEach((b, idx) => {
           b.disabled = GAME.player.coins < items[idx].price;
         });
@@ -435,7 +434,7 @@
   }
 
   // =========================
-  // World / generation (simple + reliable)
+  // World / generation
   // =========================
   function clearWorld() {
     GAME.platforms.length = 0;
@@ -450,7 +449,6 @@
   }
 
   function addGround(worldW) {
-    // collision floor
     GAME.platforms.push({ x: 0, y: FLOOR_Y, w: worldW, h: VIEW_H - FLOOR_Y });
   }
 
@@ -466,7 +464,7 @@
     p.throwCd = 0;
     p.dashCd = 0;
     p.dashT = 0;
-    p.speedMult = 1; // stage-only buffs reset
+    p.speedMult = 1;
   }
 
   function stageGenerate(level) {
@@ -482,7 +480,7 @@
     GAME.exit.x = GAME.worldW - 240;
     GAME.exit.y = FLOOR_Y - GAME.exit.h;
 
-    // A simple “stair-step” path that is always completable
+    // Always-completable stair path
     let x = 420;
     let y = 520;
 
@@ -512,7 +510,7 @@
         GAME.pickups.push({ kind: "coin", x: x + 60 + c * 90, y: y - 46, w: 24, h: 24, value: 1 });
       }
 
-      // Enemies (spawn ON platform)
+      // Enemies spawn on platform
       if (i > 0 && rng() < 0.55) {
         const type = rng() < 0.6 ? "enemy1" : "enemy2";
         GAME.enemies.push({
@@ -532,19 +530,19 @@
         });
       }
 
-      // occasional powerups
+      // powerups
       if (level >= 2 && rng() < 0.18) GAME.pickups.push({ kind: "dash", x: x + w * 0.5, y: y - 54, w: 36, h: 36 });
       if (level >= 3 && rng() < 0.16) GAME.pickups.push({ kind: "speed", x: x + w * 0.72, y: y - 54, w: 36, h: 36 });
     }
 
-    // Always place a flag on the last platform to unlock exit
+    // flag unlocks exit
     const last = path.length ? path[path.length - 1] : { x: 720, y: 520, w: 640, h: PLATFORM_H };
     if (!path.length) GAME.platforms.push(last);
 
     GAME.pickups.push({ kind: "flag", x: last.x + last.w - 90, y: last.y - 74, w: 48, h: 74 });
 
     GAME.exitLocked = true;
-    setToast("Exit locked — grab the Signal Flag!", 2.4);
+    setToast("Exit locked — grab the Signal Flag!", 2.0);
 
     resetPlayer(120, FLOOR_Y - PLAYER.h);
 
@@ -602,31 +600,25 @@
       p.dashCd = 1.0 * p.dashCdMult;
     }
 
-    // movement input
     const moveDir = (down("ArrowRight","KeyD") ? 1 : 0) + (down("ArrowLeft","KeyA") ? -1 : 0);
     if (moveDir !== 0) p.face = moveDir;
 
     const maxSpeed = PLAYER.speed * p.speedMult;
     const targetVx = (p.dashT > 0) ? (p.dashDir * PLAYER.dashV) : (moveDir * maxSpeed);
 
-    // ✅ smooth velocity (removes choppy feel)
     const accel = (Math.abs(targetVx) > Math.abs(p.vx)) ? MOVE_ACCEL : MOVE_DECEL;
     p.vx = approach(p.vx, targetVx, accel * dt);
 
-    // gravity
     p.vy += GRAVITY * dt;
 
-    // jump
     if (down("Space") && p.onGround) {
       p.vy = PLAYER.jumpV * p.jumpMult;
       p.onGround = false;
     }
 
     moveAndCollide(p, dt);
-
     p.x = clamp(p.x, 0, GAME.worldW - p.w);
 
-    // fall reset
     if (p.y > VIEW_H + 400) {
       const dmg = Math.max(1, 1 - p.armor);
       p.hp = Math.max(1, p.hp - dmg);
@@ -635,7 +627,6 @@
       updateHUD();
     }
 
-    // throw
     if (down("KeyF") && p.throwCd <= 0) {
       p.throwCd = PLAYER.throwCd * p.throwCdMult;
       const spd = 720;
@@ -667,18 +658,15 @@
       const is2 = e.kind === "enemy2";
       const speed = is2 ? ENEMY.speed2 : ENEMY.speed1;
 
-      // patrol unless close
       let target = 0;
       if (dist < ENEMY.aggro) target = e.face * speed;
       else target = e.face * speed * 0.6;
 
-      // stay on platform bounds
       if (e.x < e.patrolMin) { e.x = e.patrolMin; e.face = 1; }
       if (e.x > e.patrolMax) { e.x = e.patrolMax; e.face = -1; }
 
       e.vx = approach(e.vx, target, 1800 * dt);
 
-      // melee
       if (dist < ENEMY.meleeRange && e.meleeCd <= 0 && rectsOverlap(e, p)) {
         const dmg = Math.max(1, 1 - p.armor);
         if (p.iT <= 0) {
@@ -694,7 +682,6 @@
 
       e.x = clamp(e.x, 0, GAME.worldW - e.w);
       if (e.y > VIEW_H + 300) {
-        // respawn onto the floor instead of falling forever
         e.y = FLOOR_Y - e.h;
         e.vy = 0;
         e.onGround = true;
@@ -703,7 +690,6 @@
   }
 
   function updateProjectiles(dt) {
-    // player projectiles
     for (let i = GAME.projectiles.length - 1; i >= 0; i--) {
       const pr = GAME.projectiles[i];
       pr.t -= dt;
@@ -711,7 +697,6 @@
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
 
-      // hit enemies
       for (const e of GAME.enemies) {
         if (e.hp <= 0) continue;
         if (rectsOverlap(pr, e)) {
@@ -761,7 +746,7 @@
       if (it.kind === "flag") {
         GAME.exitLocked = false;
         GAME.pickups.splice(i, 1);
-        setToast("Signal acquired — Exit unlocked!", 2.0);
+        setToast("Signal acquired — Exit unlocked!", 1.6);
         continue;
       }
     }
@@ -783,33 +768,170 @@
   }
 
   // =========================
-  // Transition
+  // NEXT STAGE LOADING (Improved)
   // =========================
   let transT = 0;
-  const transDur = 5.0;
+
+  // phased loading
+  const TRANS_PHASES = [
+    { label: "Fading out", dur: 0.7 },
+    { label: "Generating platforms", dur: 2.3 },
+    { label: "Spawning enemies", dur: 1.7 },
+    { label: "Final checks", dur: 1.0 },
+    { label: "Syncing signal…", dur: 1.3 },
+  ];
+
+  const TRANS_TIPS = [
+    "Tip: Grab the Signal Flag to unlock the exit.",
+    "Tip: Throw the home phone (F) to stun enemies.",
+    "Tip: Dash (Shift) helps you cross big gaps fast.",
+    "Tip: Coins fuel upgrades in Edgar’s shop.",
+    "Tip: Jumping early + holding direction gives max distance.",
+  ];
+
+  let transPhase = 0;
+  let phaseT = 0;
+  let nextLevelPending = 0;
+  let genDone = false;
+
+  let tipIndex = 0;
+  let tipTimer = 0;
+
+  // dynamic UI elements (no index.html edits needed)
+  let transStageEl = null;
+  let transSubEl = null;
+  let transTipEl = null;
+  let transSpinnerEl = null;
+
+  function ensureTransitionUI() {
+    if (!transitionOverlay) return;
+    const panel = transitionOverlay.querySelector(".panel");
+    if (!panel) return;
+
+    panel.classList.add("loading");
+
+    // If already created, done
+    if (transStageEl && transSubEl && transTipEl && transSpinnerEl) return;
+
+    // Wrap existing title/text into a nicer header
+    const oldTitle = panel.querySelector(".panel-title");
+    const oldSub = panel.querySelector(".panel-sub");
+
+    // Create header row
+    const header = document.createElement("div");
+    header.className = "transHeader";
+
+    transStageEl = document.createElement("div");
+    transStageEl.className = "transStage";
+    transStageEl.textContent = "STAGE";
+
+    transSpinnerEl = document.createElement("div");
+    transSpinnerEl.className = "spinner";
+
+    header.appendChild(transStageEl);
+    header.appendChild(transSpinnerEl);
+
+    // Create subtitle
+    transSubEl = document.createElement("div");
+    transSubEl.className = "panel-sub transSub";
+    transSubEl.textContent = "Loading…";
+
+    // Create tip area
+    transTipEl = document.createElement("div");
+    transTipEl.className = "panel-sub transTip";
+    transTipEl.textContent = TRANS_TIPS[0];
+
+    // Remove old nodes safely
+    if (oldTitle) oldTitle.remove();
+    if (oldSub) oldSub.remove();
+
+    // Make bar fancy if present
+    const bar = panel.querySelector(".bar");
+    if (bar) bar.classList.add("fancy");
+
+    // Insert at top of panel
+    panel.insertBefore(header, panel.firstChild);
+    panel.insertBefore(transSubEl, header.nextSibling);
+
+    // Insert tip near bottom (before row or at end)
+    panel.appendChild(transTipEl);
+
+    // If transText exists, keep it (we’ll update it)
+  }
 
   function beginTransitionToNextLevel() {
+    ensureTransitionUI();
+
     setMode("TRANSITION");
     transT = 0;
+    transPhase = 0;
+    phaseT = 0;
+    genDone = false;
+
+    nextLevelPending = GAME.level + 1;
+
+    tipIndex = (tipIndex + 1) % TRANS_TIPS.length;
+    tipTimer = 0;
+
     if (transBar) transBar.style.width = "0%";
     if (transText) transText.textContent = "0%";
 
-    // pre-generate immediately (your “loading bar” is visual + gives you time)
-    GAME.level += 1;
-    stageGenerate(GAME.level);
-
-    GAME.shopAvailable = true;
+    if (transStageEl) transStageEl.textContent = `STAGE ${nextLevelPending}`;
+    if (transSubEl) transSubEl.textContent = "Fading out…";
+    if (transTipEl) transTipEl.textContent = TRANS_TIPS[tipIndex];
   }
 
   function updateTransition(dt) {
-    transT += dt;
-    const pct = clamp(transT / transDur, 0, 1);
-    if (transBar) transBar.style.width = `${Math.floor(pct * 100)}%`;
-    if (transText) transText.textContent = `${Math.floor(pct * 100)}%`;
+    // Rotate tips every ~1.4s
+    tipTimer += dt;
+    if (tipTimer > 1.4) {
+      tipTimer = 0;
+      tipIndex = (tipIndex + 1) % TRANS_TIPS.length;
+      if (transTipEl) transTipEl.textContent = TRANS_TIPS[tipIndex];
+    }
 
-    if (pct >= 1) {
-      if (GAME.shopAvailable) openShop();
-      else setMode("PLAY");
+    // phase timing
+    const phase = TRANS_PHASES[transPhase] || TRANS_PHASES[TRANS_PHASES.length - 1];
+    phaseT += dt;
+    transT += dt;
+
+    // Progress = sum of completed durations + current phase pct
+    const totalDur = TRANS_PHASES.reduce((a, p) => a + p.dur, 0);
+    let doneDur = 0;
+    for (let i = 0; i < transPhase; i++) doneDur += TRANS_PHASES[i].dur;
+    const phasePct = clamp(phaseT / phase.dur, 0, 1);
+    const pct = clamp((doneDur + phasePct * phase.dur) / totalDur, 0, 1);
+
+    // label + animated dots
+    const dots = ".".repeat(1 + Math.floor((transT * 2) % 3));
+    if (transSubEl) transSubEl.textContent = `${phase.label}${dots}`;
+
+    const pctInt = Math.floor(pct * 100);
+    if (transBar) transBar.style.width = `${pctInt}%`;
+    if (transText) transText.textContent = `${pctInt}%`;
+
+    // ✅ Render-first generation:
+    // Only generate after overlay is visible and we are in phase 1
+    if (!genDone && transPhase >= 1) {
+      genDone = true;
+
+      // generate next stage now (after overlay already rendered)
+      GAME.level = nextLevelPending;
+      stageGenerate(GAME.level);
+
+      // enable shop once per stage
+      GAME.shopAvailable = true;
+    }
+
+    // Advance phases
+    if (phaseT >= phase.dur) {
+      transPhase++;
+      phaseT = 0;
+      if (transPhase >= TRANS_PHASES.length) {
+        // Finished loading
+        if (GAME.shopAvailable) openShop();
+        else setMode("PLAY");
+      }
     }
   }
 
@@ -841,19 +963,17 @@
     }
   }
 
-  // ✅ Door anchor fix: bottom-align the sprite to the platform
   function drawExit() {
     const img = imgs.Exit_Door;
 
     const x = GAME.exit.x - GAME.camX;
     const y = GAME.exit.y;
 
-    // sprite draw size (bigger, but anchored)
     const drawW = 150;
     const drawH = 210;
 
     const dx = x + (GAME.exit.w - drawW) / 2;
-    const dy = (y + GAME.exit.h) - drawH; // bottom aligns to collision bottom
+    const dy = (y + GAME.exit.h) - drawH;
 
     if (img && img.complete && img.naturalWidth) {
       ctx.drawImage(img, dx, dy, drawW, drawH);
@@ -939,31 +1059,24 @@
     const time = t / 1000;
     const p = GAME.player;
 
-    // ✅ reduce jitter: round camX to integer
     GAME.camX = Math.round(clamp(p.x + p.w/2 - VIEW_W/2, 0, Math.max(0, GAME.worldW - VIEW_W)));
 
     drawBackground();
 
-    // draw platforms except the collision floor rectangle
     for (let i = 1; i < GAME.platforms.length; i++) drawPlatformRect(GAME.platforms[i]);
-
-    // draw visible ground strip
     drawPlatformRect({ x: 0, y: FLOOR_Y, w: GAME.worldW, h: PLATFORM_H });
 
     for (const it of GAME.pickups) drawPickup(it, time);
     drawExit();
 
-    // enemies
     for (const e of GAME.enemies) {
       if (e.hp <= 0) continue;
       const key = e.kind === "enemy2" ? "Enemy2" : "Enemy1";
       drawEntitySprite(key, e, ENEMY.drawW, ENEMY.drawH);
     }
 
-    // player
     drawEntitySprite(GAME.player.charKey, GAME.player, PLAYER.drawW, PLAYER.drawH);
 
-    // projectiles
     for (const pr of GAME.projectiles) {
       const img = imgs.Weapon;
       const x = pr.x - GAME.camX;
@@ -972,7 +1085,6 @@
       else { ctx.fillStyle="#fff"; ctx.fillRect(x,y,pr.w,pr.h); }
     }
 
-    // toast
     if (GAME.toastT > 0 && GAME.toastText) {
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -1055,7 +1167,6 @@
     };
 
     stageGenerate(GAME.level);
-
     Object.assign(GAME.player, saved);
     setToast("Level restarted", 1.0);
     updateHUD();
