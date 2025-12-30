@@ -12,7 +12,7 @@
   const VIEW_H = canvas.height;  // 720
 
   // =========================
-  // Safe DOM getter (prevents hard crashes)
+  // Safe DOM getter
   // =========================
   const $ = (id) => document.getElementById(id);
 
@@ -139,11 +139,11 @@
   const FLOOR_Y = 640;
   const PLATFORM_H = 40;
 
-  // Smoother movement
+  // smoother movement
   const MOVE_ACCEL = 2600;
   const MOVE_DECEL = 3200;
 
-  const PLAYER = {
+  const BASE_PLAYER = {
     w: 44,
     h: 64,
     drawW: 84,
@@ -153,6 +153,10 @@
     dashV: 860,
     dashTime: 0.13,
     throwCd: 0.35,
+
+    // baseline run stats
+    baseMaxHp: 10,
+    baseThrowDmg: 18,
   };
 
   const ENEMY = {
@@ -162,13 +166,14 @@
     drawH: 78,
     speed1: 140,
     speed2: 170,
-    jumpV1: -820,
-    jumpV2: -880,
     aggro: 520,
     meleeRange: 40,
     meleeCd: 0.8,
   };
 
+  // =========================
+  // Game State
+  // =========================
   const GAME = {
     mode: "BOOT", // BOOT, SELECT, PLAY, PAUSE, SHOP, TRANSITION
     level: 1,
@@ -186,22 +191,30 @@
     pickups: [],
     enemies: [],
     projectiles: [],
-    bossShots: [],
 
-    exit: { x: 0, y: 0, w: 110, h: 160 }, // collision box
+    exit: { x: 0, y: 0, w: 110, h: 160 },
+
+    // tutorial persistence: once completed, never show again
+    tutorialDone: (localStorage.getItem("cp_tutorialDone") === "1"),
+
+    // death sequence
+    deathPending: false,
+    deathTimer: 0,
 
     player: {
-      w: PLAYER.w,
-      h: PLAYER.h,
-      x: 120, y: FLOOR_Y - PLAYER.h,
+      w: BASE_PLAYER.w,
+      h: BASE_PLAYER.h,
+      x: 120, y: FLOOR_Y - BASE_PLAYER.h,
       vx: 0, vy: 0,
       onGround: false,
       face: 1,
 
-      hp: 10, maxHp: 10,
+      hp: BASE_PLAYER.baseMaxHp,
+      maxHp: BASE_PLAYER.baseMaxHp,
       iT: 0,
 
       coins: 0,
+
       hasDash: false,
       dashCd: 0,
       dashT: 0,
@@ -209,11 +222,11 @@
 
       speedMult: 1,
       jumpMult: 1,
-      armor: 0,          // reduces damage by up to 1
-      magnet: false,     // coin magnet
+      armor: 0,
+      magnet: false,
       dashCdMult: 1,
       throwCdMult: 1,
-      throwDmg: 18,
+      throwDmg: BASE_PLAYER.baseThrowDmg,
 
       charKey: "Nate",
       throwCd: 0,
@@ -260,6 +273,90 @@
     hudLeft.appendChild(pill(`Throw: ${GAME.player.throwCd > 0 ? "Cooling" : "Ready"}`));
 
     hudRight.appendChild(pill(`HP: ${GAME.player.hp}/${GAME.player.maxHp}`));
+  }
+
+  // =========================
+  // Confirm Overlay (dynamic)
+  // =========================
+  let confirmOverlay = null;
+  let confirmTitle = null;
+  let confirmBody = null;
+  let confirmOk = null;
+  let confirmCancel = null;
+  let confirmOnOk = null;
+  let confirmOnCancel = null;
+
+  function ensureConfirmOverlay() {
+    if (confirmOverlay) return;
+
+    confirmOverlay = document.createElement("div");
+    confirmOverlay.className = "overlay";
+    confirmOverlay.id = "confirmOverlay";
+
+    const panel = document.createElement("div");
+    panel.className = "panel";
+
+    confirmTitle = document.createElement("div");
+    confirmTitle.className = "panel-title big";
+    confirmTitle.textContent = "CONFIRM";
+
+    confirmBody = document.createElement("div");
+    confirmBody.className = "panel-sub";
+    confirmBody.style.marginTop = "10px";
+    confirmBody.style.lineHeight = "1.7";
+
+    const row = document.createElement("div");
+    row.className = "row";
+
+    confirmCancel = document.createElement("button");
+    confirmCancel.className = "btn ghost";
+    confirmCancel.textContent = "Cancel";
+    confirmCancel.addEventListener("click", () => {
+      closeConfirm();
+      confirmOnCancel?.();
+    });
+
+    confirmOk = document.createElement("button");
+    confirmOk.className = "btn";
+    confirmOk.textContent = "OK";
+    confirmOk.addEventListener("click", () => {
+      closeConfirm();
+      confirmOnOk?.();
+    });
+
+    row.appendChild(confirmCancel);
+    row.appendChild(confirmOk);
+
+    panel.appendChild(confirmTitle);
+    panel.appendChild(confirmBody);
+    panel.appendChild(row);
+    confirmOverlay.appendChild(panel);
+
+    // put it over the stage if possible
+    const stage = document.querySelector(".stage") || document.body;
+    stage.appendChild(confirmOverlay);
+  }
+
+  function openConfirm({ title, body, okText = "OK", cancelText = "Cancel", showCancel = true, onOk, onCancel }) {
+    ensureConfirmOverlay();
+    confirmTitle.textContent = title;
+    confirmBody.textContent = body;
+    confirmOk.textContent = okText;
+    confirmCancel.textContent = cancelText;
+    confirmCancel.style.display = showCancel ? "" : "none";
+    confirmOnOk = onOk || null;
+    confirmOnCancel = onCancel || null;
+    confirmOverlay.classList.add("show");
+  }
+
+  function closeConfirm() {
+    confirmOverlay?.classList.remove("show");
+    confirmOnOk = null;
+    confirmOnCancel = null;
+  }
+
+  function isConfirmOpen() {
+    return !!confirmOverlay && confirmOverlay.classList.contains("show");
   }
 
   // =========================
@@ -316,14 +413,29 @@
     if (GAME.mode === "PAUSE") setMode("PLAY");
   });
 
+  // Change label so it matches behavior (restart run)
+  if (btnRestart) btnRestart.textContent = "Restart Run";
+
   btnRestart?.addEventListener("click", () => {
-    if (GAME.mode === "PAUSE") {
-      restartLevel();
-      setMode("PLAY");
-    }
+    if (GAME.mode !== "PAUSE") return;
+
+    openConfirm({
+      title: "RESTART RUN?",
+      body: "This will send you back to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades from this run.",
+      okText: "Restart",
+      cancelText: "Back",
+      showCancel: true,
+      onOk: () => {
+        restartRun("Restarted run");
+        setMode("PLAY");
+      }
+    });
   });
 
   function togglePause() {
+    // don't let ESC interfere with confirm/death sequences
+    if (GAME.deathPending || isConfirmOpen()) return;
+
     if (GAME.mode === "PLAY") setMode("PAUSE");
     else if (GAME.mode === "PAUSE") setMode("PLAY");
   }
@@ -344,9 +456,9 @@
 
     const items = [
       { name: "HEAL +3", price: 6, desc: "Restore up to 3 HP.", buy: () => { GAME.player.hp = Math.min(GAME.player.maxHp, GAME.player.hp + 3); } },
-      { name: "+1 MAX HP", price: 10, desc: "Permanent extra HP block.", buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; } },
-      { name: "+ JUMP", price: 10, desc: "Jump a bit higher (permanent).", buy: () => { GAME.player.jumpMult = Math.min(1.25, GAME.player.jumpMult + 0.06); } },
-      { name: "UNLOCK DASH", price: 12, desc: "Enable Shift dash.", buy: () => { GAME.player.hasDash = true; } },
+      { name: "+1 MAX HP", price: 10, desc: "Permanent extra HP block (this run).", buy: () => { GAME.player.maxHp += 1; GAME.player.hp = GAME.player.maxHp; } },
+      { name: "+ JUMP", price: 10, desc: "Jump a bit higher (this run).", buy: () => { GAME.player.jumpMult = Math.min(1.25, GAME.player.jumpMult + 0.06); } },
+      { name: "UNLOCK DASH", price: 12, desc: "Enable Shift dash (this run).", buy: () => { GAME.player.hasDash = true; } },
       { name: "DASH COOL↓", price: 12, desc: "Dash cools down faster.", buy: () => { GAME.player.dashCdMult = Math.max(0.7, GAME.player.dashCdMult - 0.08); } },
       { name: "THROW COOL↓", price: 12, desc: "Throw more often.", buy: () => { GAME.player.throwCdMult = Math.max(0.7, GAME.player.throwCdMult - 0.08); } },
       { name: "+ THROW DMG", price: 14, desc: "Home phone hits harder.", buy: () => { GAME.player.throwDmg += 5; } },
@@ -441,7 +553,6 @@
     GAME.pickups.length = 0;
     GAME.enemies.length = 0;
     GAME.projectiles.length = 0;
-    GAME.bossShots.length = 0;
     GAME.stageCleared = false;
     GAME.exitLocked = true;
     GAME.toastText = "";
@@ -452,10 +563,10 @@
     GAME.platforms.push({ x: 0, y: FLOOR_Y, w: worldW, h: VIEW_H - FLOOR_Y });
   }
 
-  function resetPlayer(x, y) {
+  function resetPlayerPos(x, y) {
     const p = GAME.player;
-    p.w = PLAYER.w;
-    p.h = PLAYER.h;
+    p.w = BASE_PLAYER.w;
+    p.h = BASE_PLAYER.h;
     p.x = x; p.y = y;
     p.vx = 0; p.vy = 0;
     p.onGround = false;
@@ -474,7 +585,6 @@
     GAME.worldW = 2600 + Math.min(1400, level * 240);
     addGround(GAME.worldW);
 
-    // Exit collision box sits on the floor
     GAME.exit.w = 110;
     GAME.exit.h = 160;
     GAME.exit.x = GAME.worldW - 240;
@@ -544,11 +654,51 @@
     GAME.exitLocked = true;
     setToast("Exit locked — grab the Signal Flag!", 2.0);
 
-    resetPlayer(120, FLOOR_Y - PLAYER.h);
+    resetPlayerPos(120, FLOOR_Y - BASE_PLAYER.h);
 
-    if (level === 1 && tutorialOverlay) tutorialOverlay.classList.remove("hidden");
-    else tutorialOverlay?.classList.add("hidden");
+    // ✅ tutorial only shows once EVER (even when returning to level 1)
+    if (tutorialOverlay) {
+      if (level === 1 && !GAME.tutorialDone) tutorialOverlay.classList.remove("hidden");
+      else tutorialOverlay.classList.add("hidden");
+    }
 
+    updateHUD();
+  }
+
+  // =========================
+  // Run reset rules (NEW)
+  // =========================
+  function resetRunProgress() {
+    const p = GAME.player;
+
+    // keep chosen character + tutorialDone, wipe everything else
+    p.maxHp = BASE_PLAYER.baseMaxHp;
+    p.hp = BASE_PLAYER.baseMaxHp;
+    p.coins = 0;
+
+    p.hasDash = false;
+    p.throwDmg = BASE_PLAYER.baseThrowDmg;
+
+    p.jumpMult = 1;
+    p.armor = 0;
+    p.magnet = false;
+    p.dashCdMult = 1;
+    p.throwCdMult = 1;
+
+    p.throwCd = 0;
+    p.dashCd = 0;
+    p.dashT = 0;
+    p.speedMult = 1;
+  }
+
+  function restartRun(toastMsg = "Run restarted") {
+    GAME.deathPending = false;
+    GAME.deathTimer = 0;
+
+    resetRunProgress();
+    GAME.level = 1;
+    stageGenerate(1);
+    setToast(toastMsg, 1.6);
     updateHUD();
   }
 
@@ -585,17 +735,22 @@
     p.dashCd = Math.max(0, p.dashCd - dt);
     p.dashT = Math.max(0, p.dashT - dt);
 
-    // tutorial checks
+    // tutorial checks -> once completed, never again
     if (GAME.level === 1 && tutorialOverlay && !tutorialOverlay.classList.contains("hidden")) {
       if (down("ArrowLeft","ArrowRight","KeyA","KeyD")) tMove && (tMove.checked = true);
       if (down("Space")) tJump && (tJump.checked = true);
       if (down("KeyF")) tThrow && (tThrow.checked = true);
-      if (tMove?.checked && tJump?.checked && tThrow?.checked) tutorialOverlay.classList.add("hidden");
+
+      if (tMove?.checked && tJump?.checked && tThrow?.checked) {
+        tutorialOverlay.classList.add("hidden");
+        GAME.tutorialDone = true;
+        localStorage.setItem("cp_tutorialDone", "1");
+      }
     }
 
     // dash
     if (p.hasDash && p.dashCd <= 0 && down("ShiftLeft") && p.dashT <= 0) {
-      p.dashT = PLAYER.dashTime;
+      p.dashT = BASE_PLAYER.dashTime;
       p.dashDir = p.face;
       p.dashCd = 1.0 * p.dashCdMult;
     }
@@ -603,8 +758,8 @@
     const moveDir = (down("ArrowRight","KeyD") ? 1 : 0) + (down("ArrowLeft","KeyA") ? -1 : 0);
     if (moveDir !== 0) p.face = moveDir;
 
-    const maxSpeed = PLAYER.speed * p.speedMult;
-    const targetVx = (p.dashT > 0) ? (p.dashDir * PLAYER.dashV) : (moveDir * maxSpeed);
+    const maxSpeed = BASE_PLAYER.speed * p.speedMult;
+    const targetVx = (p.dashT > 0) ? (p.dashDir * BASE_PLAYER.dashV) : (moveDir * maxSpeed);
 
     const accel = (Math.abs(targetVx) > Math.abs(p.vx)) ? MOVE_ACCEL : MOVE_DECEL;
     p.vx = approach(p.vx, targetVx, accel * dt);
@@ -612,23 +767,25 @@
     p.vy += GRAVITY * dt;
 
     if (down("Space") && p.onGround) {
-      p.vy = PLAYER.jumpV * p.jumpMult;
+      p.vy = BASE_PLAYER.jumpV * p.jumpMult;
       p.onGround = false;
     }
 
     moveAndCollide(p, dt);
     p.x = clamp(p.x, 0, GAME.worldW - p.w);
 
+    // falling damage (never kills instantly — but can)
     if (p.y > VIEW_H + 400) {
       const dmg = Math.max(1, 1 - p.armor);
-      p.hp = Math.max(1, p.hp - dmg);
-      resetPlayer(120, FLOOR_Y - PLAYER.h);
+      p.hp = Math.max(0, p.hp - dmg);
+      resetPlayerPos(120, FLOOR_Y - BASE_PLAYER.h);
       setToast(`Fell! -${dmg} HP`, 1.2);
       updateHUD();
     }
 
+    // throw
     if (down("KeyF") && p.throwCd <= 0) {
-      p.throwCd = PLAYER.throwCd * p.throwCdMult;
+      p.throwCd = BASE_PLAYER.throwCd * p.throwCdMult;
       const spd = 720;
       GAME.projectiles.push({
         x: p.x + p.w/2 + p.face * 18,
@@ -768,11 +925,9 @@
   }
 
   // =========================
-  // NEXT STAGE LOADING (Improved)
+  // Next Stage Loading (existing)
   // =========================
   let transT = 0;
-
-  // phased loading
   const TRANS_PHASES = [
     { label: "Fading out", dur: 0.7 },
     { label: "Generating platforms", dur: 2.3 },
@@ -781,87 +936,12 @@
     { label: "Syncing signal…", dur: 1.3 },
   ];
 
-  const TRANS_TIPS = [
-    "Tip: Grab the Signal Flag to unlock the exit.",
-    "Tip: Throw the home phone (F) to stun enemies.",
-    "Tip: Dash (Shift) helps you cross big gaps fast.",
-    "Tip: Coins fuel upgrades in Edgar’s shop.",
-    "Tip: Jumping early + holding direction gives max distance.",
-  ];
-
   let transPhase = 0;
   let phaseT = 0;
   let nextLevelPending = 0;
   let genDone = false;
 
-  let tipIndex = 0;
-  let tipTimer = 0;
-
-  // dynamic UI elements (no index.html edits needed)
-  let transStageEl = null;
-  let transSubEl = null;
-  let transTipEl = null;
-  let transSpinnerEl = null;
-
-  function ensureTransitionUI() {
-    if (!transitionOverlay) return;
-    const panel = transitionOverlay.querySelector(".panel");
-    if (!panel) return;
-
-    panel.classList.add("loading");
-
-    // If already created, done
-    if (transStageEl && transSubEl && transTipEl && transSpinnerEl) return;
-
-    // Wrap existing title/text into a nicer header
-    const oldTitle = panel.querySelector(".panel-title");
-    const oldSub = panel.querySelector(".panel-sub");
-
-    // Create header row
-    const header = document.createElement("div");
-    header.className = "transHeader";
-
-    transStageEl = document.createElement("div");
-    transStageEl.className = "transStage";
-    transStageEl.textContent = "STAGE";
-
-    transSpinnerEl = document.createElement("div");
-    transSpinnerEl.className = "spinner";
-
-    header.appendChild(transStageEl);
-    header.appendChild(transSpinnerEl);
-
-    // Create subtitle
-    transSubEl = document.createElement("div");
-    transSubEl.className = "panel-sub transSub";
-    transSubEl.textContent = "Loading…";
-
-    // Create tip area
-    transTipEl = document.createElement("div");
-    transTipEl.className = "panel-sub transTip";
-    transTipEl.textContent = TRANS_TIPS[0];
-
-    // Remove old nodes safely
-    if (oldTitle) oldTitle.remove();
-    if (oldSub) oldSub.remove();
-
-    // Make bar fancy if present
-    const bar = panel.querySelector(".bar");
-    if (bar) bar.classList.add("fancy");
-
-    // Insert at top of panel
-    panel.insertBefore(header, panel.firstChild);
-    panel.insertBefore(transSubEl, header.nextSibling);
-
-    // Insert tip near bottom (before row or at end)
-    panel.appendChild(transTipEl);
-
-    // If transText exists, keep it (we’ll update it)
-  }
-
   function beginTransitionToNextLevel() {
-    ensureTransitionUI();
-
     setMode("TRANSITION");
     transT = 0;
     transPhase = 0;
@@ -870,69 +950,65 @@
 
     nextLevelPending = GAME.level + 1;
 
-    tipIndex = (tipIndex + 1) % TRANS_TIPS.length;
-    tipTimer = 0;
-
     if (transBar) transBar.style.width = "0%";
     if (transText) transText.textContent = "0%";
-
-    if (transStageEl) transStageEl.textContent = `STAGE ${nextLevelPending}`;
-    if (transSubEl) transSubEl.textContent = "Fading out…";
-    if (transTipEl) transTipEl.textContent = TRANS_TIPS[tipIndex];
   }
 
   function updateTransition(dt) {
-    // Rotate tips every ~1.4s
-    tipTimer += dt;
-    if (tipTimer > 1.4) {
-      tipTimer = 0;
-      tipIndex = (tipIndex + 1) % TRANS_TIPS.length;
-      if (transTipEl) transTipEl.textContent = TRANS_TIPS[tipIndex];
-    }
-
-    // phase timing
     const phase = TRANS_PHASES[transPhase] || TRANS_PHASES[TRANS_PHASES.length - 1];
     phaseT += dt;
     transT += dt;
 
-    // Progress = sum of completed durations + current phase pct
     const totalDur = TRANS_PHASES.reduce((a, p) => a + p.dur, 0);
     let doneDur = 0;
     for (let i = 0; i < transPhase; i++) doneDur += TRANS_PHASES[i].dur;
     const phasePct = clamp(phaseT / phase.dur, 0, 1);
     const pct = clamp((doneDur + phasePct * phase.dur) / totalDur, 0, 1);
 
-    // label + animated dots
-    const dots = ".".repeat(1 + Math.floor((transT * 2) % 3));
-    if (transSubEl) transSubEl.textContent = `${phase.label}${dots}`;
-
     const pctInt = Math.floor(pct * 100);
     if (transBar) transBar.style.width = `${pctInt}%`;
     if (transText) transText.textContent = `${pctInt}%`;
 
-    // ✅ Render-first generation:
-    // Only generate after overlay is visible and we are in phase 1
+    // generate once overlay is up
     if (!genDone && transPhase >= 1) {
       genDone = true;
-
-      // generate next stage now (after overlay already rendered)
       GAME.level = nextLevelPending;
       stageGenerate(GAME.level);
-
-      // enable shop once per stage
       GAME.shopAvailable = true;
     }
 
-    // Advance phases
     if (phaseT >= phase.dur) {
       transPhase++;
       phaseT = 0;
       if (transPhase >= TRANS_PHASES.length) {
-        // Finished loading
         if (GAME.shopAvailable) openShop();
         else setMode("PLAY");
       }
     }
+  }
+
+  // =========================
+  // Death behavior (NEW)
+  // =========================
+  function triggerDeathReset() {
+    if (GAME.deathPending) return;
+
+    GAME.deathPending = true;
+    GAME.deathTimer = 2.2;
+
+    // pause gameplay and show warning overlay
+    setMode("PAUSE");
+
+    openConfirm({
+      title: "YOU DIED!",
+      body: "Restarting to Level 1 with FULL HEALTH.\n\nYou will LOSE all coins and ALL shop upgrades.\n\nRestarting in 2 seconds…",
+      okText: "Restart Now",
+      showCancel: false,
+      onOk: () => {
+        restartRun("You died — back to Level 1");
+        setMode("PLAY");
+      }
+    });
   }
 
   // =========================
@@ -1075,7 +1151,7 @@
       drawEntitySprite(key, e, ENEMY.drawW, ENEMY.drawH);
     }
 
-    drawEntitySprite(GAME.player.charKey, GAME.player, PLAYER.drawW, PLAYER.drawH);
+    drawEntitySprite(GAME.player.charKey, GAME.player, BASE_PLAYER.drawW, BASE_PLAYER.drawH);
 
     for (const pr of GAME.projectiles) {
       const img = imgs.Weapon;
@@ -1105,6 +1181,27 @@
   function update(dt) {
     if (GAME.toastT > 0) GAME.toastT = Math.max(0, GAME.toastT - dt);
 
+    // ✅ death countdown runs even while paused/confirm is up
+    if (GAME.deathPending) {
+      GAME.deathTimer -= dt;
+
+      // update message countdown (nice touch)
+      if (confirmBody) {
+        const sec = Math.max(0, Math.ceil(GAME.deathTimer));
+        confirmBody.textContent =
+          "Restarting to Level 1 with FULL HEALTH.\n\n" +
+          "You will LOSE all coins and ALL shop upgrades.\n\n" +
+          `Restarting in ${sec} second${sec === 1 ? "" : "s"}…`;
+      }
+
+      if (GAME.deathTimer <= 0) {
+        closeConfirm();
+        restartRun("You died — back to Level 1");
+        setMode("PLAY");
+      }
+      return;
+    }
+
     if (GAME.mode === "TRANSITION") { updateTransition(dt); return; }
     if (GAME.mode !== "PLAY") return;
 
@@ -1115,9 +1212,10 @@
     handlePickups();
     handleExit();
 
+    // ✅ NEW death rule: HP 0 = reset run to Level 1 (with warning)
     if (GAME.player.hp <= 0) {
-      setToast("GAME OVER — restarting level", 2.0);
-      restartLevel();
+      triggerDeathReset();
+      return;
     }
 
     updateHUD();
@@ -1137,39 +1235,8 @@
   // Run control
   // =========================
   function startNewRun() {
-    GAME.level = 1;
-    GAME.player.hp = GAME.player.maxHp;
-    GAME.player.coins = 0;
-    GAME.player.hasDash = false;
-    GAME.player.throwDmg = 18;
-    GAME.player.jumpMult = 1;
-    GAME.player.armor = 0;
-    GAME.player.magnet = false;
-    GAME.player.dashCdMult = 1;
-    GAME.player.throwCdMult = 1;
-
-    stageGenerate(GAME.level);
-    setMode("PLAY");
-  }
-
-  function restartLevel() {
-    const saved = {
-      coins: GAME.player.coins,
-      maxHp: GAME.player.maxHp,
-      hp: Math.min(GAME.player.hp, GAME.player.maxHp),
-      hasDash: GAME.player.hasDash,
-      throwDmg: GAME.player.throwDmg,
-      jumpMult: GAME.player.jumpMult,
-      armor: GAME.player.armor,
-      magnet: GAME.player.magnet,
-      dashCdMult: GAME.player.dashCdMult,
-      throwCdMult: GAME.player.throwCdMult,
-    };
-
-    stageGenerate(GAME.level);
-    Object.assign(GAME.player, saved);
-    setToast("Level restarted", 1.0);
-    updateHUD();
+    // tutorial flag persists; everything else resets
+    restartRun("Run started");
   }
 
   async function boot() {
@@ -1182,6 +1249,7 @@
 
     buildCharSelect();
     setMode("SELECT");
+    updateHUD();
   }
 
   // =========================
