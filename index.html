@@ -4,113 +4,81 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="./style.css" />
 </head>
-
 <body>
-  <div class="page">
-    <div class="frame">
-      <div class="topbar">
-        <div class="title">CELLULAR PLATFORMER</div>
-        <div class="hint">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
-      </div>
+  <div class="shell">
+    <div class="topbar">
+      <div class="title">CELLULAR PLATFORMER</div>
+      <div class="help">Move: ←/→ or A/D · Jump: Space · Pause: Esc</div>
+    </div>
 
-      <div class="playfield">
-        <canvas id="game" width="960" height="540"></canvas>
+    <div class="screen">
+      <canvas id="game" width="960" height="540"></canvas>
 
-        <!-- Boot / Loading -->
-        <div id="bootOverlay" class="overlay overlay--show">
-          <div class="panel">
-            <div class="panelTitle">CELLULAR PLATFORMER</div>
-            <div id="bootSub" class="panelSub">Waiting for JavaScript…</div>
+      <!-- Boot / Loading -->
+      <div id="bootOverlay" class="overlay overlay--show">
+        <div class="panel">
+          <div class="panelTitle">CELLULAR PLATFORMER</div>
+          <div id="bootSub" class="panelSub">Loading…</div>
 
-            <div class="barOuter"><div id="bootBar" class="barInner" style="width:0%"></div></div>
-            <div class="row">
-              <div id="bootText" class="mono">0%</div>
-              <div id="bootFile" class="mono dim">—</div>
-            </div>
-
-            <div id="bootWarn" class="warn" style="display:none"></div>
-
-            <div class="row rowEnd">
-              <button id="bootStartBtn" class="btn" disabled>START</button>
-            </div>
-
-            <div class="tiny dim">Assets must be in <span class="mono">/assets</span>.</div>
+          <div class="bar">
+            <div id="bootBar" class="barFill"></div>
           </div>
-        </div>
-
-        <!-- Character Select -->
-        <div id="charOverlay" class="overlay">
-          <div class="panel wide">
-            <div class="panelTitle">CHOOSE YOUR CHARACTER</div>
-            <div class="panelSub tiny dim">Tutorial runs once on Level 1.</div>
-
-            <div id="charGrid" class="charGrid"></div>
-
-            <div class="row rowEnd">
-              <button id="charStartBtn" class="btn" disabled>PLAY</button>
-            </div>
+          <div class="row">
+            <div id="bootText" class="pct">0%</div>
+            <div id="bootFile" class="file">—</div>
           </div>
-        </div>
 
-        <!-- Pause -->
-        <div id="pauseOverlay" class="overlay">
-          <div class="panel">
-            <div class="panelTitle">PAUSED</div>
-            <div class="panelSub tiny dim">Esc to resume.</div>
+          <div id="bootWarn" class="warn" style="display:none;"></div>
 
-            <div class="row">
-              <button id="resumeBtn" class="btn">RESUME</button>
-              <button id="restartBtn" class="btn danger">RESTART LEVEL</button>
-            </div>
-
-            <div class="tiny warnInline">
-              Restart resets the level (including shop effects).
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage Complete -->
-        <div id="stageOverlay" class="overlay">
-          <div class="panel wide">
-            <div class="panelTitle">STAGE COMPLETE</div>
-            <div id="stageStats" class="stageStats mono"></div>
-            <div class="row rowEnd">
-              <button id="nextStageBtn" class="btn">NEXT STAGE</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Shop -->
-        <div id="shopOverlay" class="overlay">
-          <div class="panel wide">
-            <div class="panelTitle">SHOP</div>
-            <div class="panelSub tiny dim">Spend coins. Effects reset on Restart/Death.</div>
-            <div id="shopList" class="shopList"></div>
-            <div class="row rowEnd">
-              <button id="shopCloseBtn" class="btn">CONTINUE</button>
-            </div>
-          </div>
+          <button id="bootStartBtn" class="btn" disabled>START</button>
+          <div class="tiny">Assets must be in <b>/assets</b>.</div>
         </div>
       </div>
 
-      <div class="hud">
-        <div class="pill"><span class="dim">Level:</span> <span id="hudLevel">1</span></div>
-        <div class="pill"><span class="dim">Coins:</span> <span id="hudCoins">0</span></div>
-        <div class="pill"><span class="dim">Dash:</span> <span id="hudDash">Locked</span></div>
-        <div class="pill"><span class="dim">Speed:</span> <span id="hudSpeed">Normal</span></div>
-        <div class="pill"><span class="dim">Throw:</span> <span id="hudThrow">Ready</span></div>
-        <div class="pill right"><span class="dim">HP:</span> <span id="hudHP">10/10</span></div>
+      <!-- Character Select -->
+      <div id="charOverlay" class="overlay">
+        <div class="panel wide">
+          <div class="panelTitle">CHOOSE YOUR CHARACTER</div>
+          <div class="panelSub">Pick your fighter.</div>
+
+          <div id="charGrid" class="charGrid"></div>
+
+          <button id="charStartBtn" class="btn" disabled>PLAY</button>
+        </div>
       </div>
 
-      <div class="footer tiny dim">Made with HTML Canvas · Hosted on GitHub Pages</div>
+      <!-- Pause -->
+      <div id="pauseOverlay" class="overlay">
+        <div class="panel">
+          <div class="panelTitle">PAUSED</div>
+          <div class="panelSub">Press Esc to resume.</div>
+          <button id="resumeBtn" class="btn">RESUME</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud">
+      <div class="chip"><span>Level:</span> <b id="hudLevel">1</b></div>
+      <div class="chip"><span>Coins:</span> <b id="hudCoins">0</b></div>
+      <div class="chip"><span>HP:</span> <b id="hudHP">10/10</b></div>
+      <div class="chip dim">Made with HTML Canvas · Hosted on GitHub Pages</div>
     </div>
   </div>
 
+  <noscript>
+    <div style="padding:16px;color:#fff;background:#a00;font-family:monospace;">
+      JavaScript is required to run this game.
+    </div>
+  </noscript>
+
+  <!-- IMPORTANT: keep main.js inside /js and load it as a module -->
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>
