@@ -2,13 +2,14 @@ export const CONFIG = {
   CANVAS_W: 960,
   CANVAS_H: 540,
 
-  GRAVITY: 2100,
+  // Physics tuned for “doable” jumps
+  GRAVITY: 1900,
   MAX_FALL: 1600,
 
   PLAYER_W: 34,
   PLAYER_H: 46,
-  PLAYER_SPEED: 320,
-  PLAYER_JUMP: 720,
+  PLAYER_SPEED: 360,     // was 320
+  PLAYER_JUMP: 780,      // was 720
   COYOTE_TIME: 0.10,
   JUMP_BUFFER: 0.10,
 
@@ -35,8 +36,9 @@ export const CONFIG = {
   LEVEL_W: 2800,
   FLOOR_Y: 470,
 
-  PLATFORM_MIN_GAP: 120,
-  PLATFORM_MAX_GAP: 220,
+  // Keep floor gaps reasonable (Level 1 must be playable)
+  PLATFORM_MIN_GAP: 60,
+  PLATFORM_MAX_GAP: 130,
 
   SPIKES_FROM_LEVEL: 4,
   MOVING_PLAT_FROM_LEVEL: 3,
