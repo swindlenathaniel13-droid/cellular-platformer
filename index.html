@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
 
-  <!-- IMPORTANT: use RELATIVE paths for GitHub Pages -->
+  <!-- IMPORTANT: RELATIVE paths for GitHub Pages -->
   <link rel="stylesheet" href="./style.css" />
 
-  <!-- Retro-ish font (falls back safely if blocked) -->
+  <!-- Retro-ish font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
+  <!-- Module script -->
   <script type="module" src="./main.js"></script>
 </head>
 
@@ -29,19 +30,24 @@
       <div class="frame" id="frame">
         <canvas id="game" width="1280" height="720"></canvas>
 
-        <!-- All overlays MUST live inside this frame so they don't appear below the canvas -->
         <div class="overlayRoot" id="overlayRoot">
 
           <!-- BOOT / LOADING -->
           <div class="overlay overlay--show" id="bootOverlay">
             <div class="card">
               <div class="cardTitle">CELLULAR PLATFORMER</div>
-              <div class="cardSub">Loading assets…</div>
+
+              <!-- This text changes if JS is running -->
+              <div class="cardSub" id="bootSub">Waiting for JavaScript…</div>
 
               <div class="progress">
                 <div class="progressFill" id="bootBar"></div>
               </div>
+
               <div class="small" id="bootText">0%</div>
+
+              <!-- Shows which file is currently loading -->
+              <div class="small dim" id="bootFile">—</div>
 
               <div class="warn small" id="bootWarn" style="display:none;"></div>
 
@@ -57,9 +63,7 @@
             <div class="card wide">
               <div class="cardTitle">CHOOSE YOUR CHARACTER</div>
               <div class="cardSub">Tutorial runs once on Level 1.</div>
-
               <div class="grid" id="charGrid"></div>
-
               <div class="row">
                 <button class="btn" id="charStartBtn" disabled>START RUN</button>
               </div>
@@ -82,7 +86,7 @@
             </div>
           </div>
 
-          <!-- CONFIRM DIALOG -->
+          <!-- CONFIRM -->
           <div class="overlay" id="confirmOverlay">
             <div class="card">
               <div class="cardTitle" id="confirmTitle">CONFIRM</div>
@@ -147,7 +151,7 @@
             </div>
           </div>
 
-          <!-- TUTORIAL (in-canvas overlay style) -->
+          <!-- TUTORIAL -->
           <div class="hudBox" id="tutorialBox" style="display:none;">
             <div class="hudTitle">HOW TO PLAY</div>
             <label class="check"><input type="checkbox" id="tMove" /> Move (A/D or &larr;/&rarr;)</label>
