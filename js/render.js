@@ -1,5 +1,3 @@
-import { clamp } from "./utils.js";
-
 export function createRenderer(canvas){
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
@@ -11,10 +9,8 @@ export function draw(game){
   const { assets } = game;
   const { camX, camY } = game;
 
-  // clear
   ctx.clearRect(0,0,game.W,game.H);
 
-  // background parallax (tile)
   if(assets.bg){
     const img = assets.bg;
     const par = camX * 0.25;
@@ -32,18 +28,15 @@ export function draw(game){
   ctx.save();
   ctx.translate(-camX, -camY);
 
-  // platforms
   for(const s of game.world.solids){
     drawPlatform(ctx, assets, s);
   }
 
-  // hazards (simple)
   for(const h of game.world.hazards){
     ctx.fillStyle = "rgba(255,120,120,0.65)";
     ctx.fillRect(h.x, h.y, h.w, h.h);
   }
 
-  // pickups
   for(const p of game.world.pickups){
     if(!p.alive) continue;
     if(p.kind === "coin" && assets.coin){
@@ -51,17 +44,31 @@ export function draw(game){
     }
   }
 
-  // flag + door (flag drawn AFTER door to avoid hiding)
+  // Door (locked until checkpoint)
   if(assets.door){
     const d = game.world.door;
-    ctx.drawImage(assets.door, d.x, d.y, d.w, d.h);
+    if(!game.exitUnlocked){
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.drawImage(assets.door, d.x, d.y, d.w, d.h);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(d.x, d.y, d.w, d.h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(assets.door, d.x, d.y, d.w, d.h);
+    }
   }
+
+  // Flag (always visible)
   if(assets.flag){
     const f = game.world.flag;
     ctx.drawImage(assets.flag, f.x, f.y, f.w, f.h);
   }
 
-  // projectiles
   for(const pr of game.projectiles){
     if(pr.kind === "phone" && assets.phone){
       ctx.drawImage(assets.phone, pr.x, pr.y, pr.w, pr.h);
@@ -71,16 +78,13 @@ export function draw(game){
     }
   }
 
-  // enemies
   for(const e of game.enemies){
     if(e.hp <= 0) continue;
     drawEnemy(ctx, assets, e);
   }
 
-  // player
   drawPlayer(ctx, assets, game.player);
 
-  // dash particles
   for(const fx of game.fx){
     ctx.globalAlpha = fx.a;
     ctx.fillStyle = "rgba(160,220,255,1)";
@@ -93,7 +97,6 @@ export function draw(game){
 
 function drawPlatform(ctx, assets, s){
   if(assets.platform){
-    // tile platform image across width (pixel style)
     const img = assets.platform;
     const tileW = img.width;
     const tileH = img.height;
@@ -114,21 +117,15 @@ function drawPlayer(ctx, assets, p){
   const img = assets[p.charKey] || assets.nate;
   ctx.save();
 
-  // tiny “animation” bob + squash
   const bob = Math.sin(p.animT*10) * (p.onGround ? 1.2 : 0.4);
   const squash = p.onGround ? (1 + Math.sin(p.animT*14)*0.02) : 1;
   const hurtShake = p.hurtT > 0 ? Math.sin(p.animT*60)*2 : 0;
 
   ctx.translate(p.x + p.w/2 + hurtShake, p.y + p.h/2 + bob);
-
-  // flip
   ctx.scale(p.facing, 1);
 
-  // dash tilt
   const tilt = (p.dashT > 0) ? (-0.12 * p.facing) : 0;
   ctx.rotate(tilt);
-
-  // squash
   ctx.scale(1, squash);
 
   if(img){
