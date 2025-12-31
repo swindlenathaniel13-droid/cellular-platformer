@@ -1,56 +1,64 @@
-const IMG_FILES = {
-  background: "Background_Pic.png",
+const CACHE_BUST = "v2025-12-30f";
+
+export const FILES = {
+  bg: "Background_Pic.png",
   platform: "Platform.png",
+  door: "Exit_Door.png",
+  flag: "CheckpointFlag.png",
   coin: "Coin.png",
-  exit: "Exit_Door.png",
-  checkpoint: "CheckpointFlag.png",
-
-  Nate: "Nate.png",
-  Kevin: "Kevin.png",
-  Gilly: "Gilly.png",
-  Scott: "Scott.png",
-  Edgar: "Edgar.png",
-
-  Enemy1: "Enemy1.png",
-  Enemy2: "Enemy2.png",
-
-  dashPU: "Powerup_Dash.png",
-  speedPU: "Powerup_Speedboost.png",
-  phonePU: "powerup_homephone.png",
+  enemy1: "Enemy1.png",
+  enemy2: "Enemy2.png",
+  dash: "Powerup_Dash.png",
+  speed: "Powerup_Speedboost.png",
+  phone: "powerup_homephone.png",
+  nate: "Nate.png",
+  kevin: "Kevin.png",
+  scott: "Scott.png",
+  gilly: "Gilly.png",
+  edgar: "Edgar.png",
 };
 
-export async function loadAssets(onProgress) {
-  const base = "./assets/";
-  const keys = Object.keys(IMG_FILES);
-  const total = keys.length;
+export const ASSET_BASE = "./assets/";
 
-  const images = {};
-  let loaded = 0;
+export const safeUrl = (file) => `${ASSET_BASE}${file}?${CACHE_BUST}`;
 
-  const loadOne = (key) =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Failed to load ${base + IMG_FILES[key]}`));
-      img.src = base + IMG_FILES[key];
-    });
-
-  for (const k of keys) {
-    onProgress?.(loaded / total, `Loading ${IMG_FILES[k]}…`);
-    try {
-      images[k] = await loadOne(k);
-      loaded += 1;
-      onProgress?.(loaded / total, `Loaded ${IMG_FILES[k]}`);
-    } catch (e) {
-      // Fail loud: better to know which file is missing
-      console.error(e);
-      throw e;
-    }
-  }
-
-  onProgress?.(1, "Done.");
-  return { images };
+export function loadImageWithTimeout(file, timeoutMs = 5000){
+  const url = safeUrl(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    let done = false;
+    const finish = (ok, reason) => {
+      if (done) return;
+      done = true;
+      resolve({ ok, img: ok ? img : null, file, url, reason });
+    };
+    const t = setTimeout(() => finish(false, "timeout"), timeoutMs);
+    img.onload = () => { clearTimeout(t); finish(true, "ok"); };
+    img.onerror = () => { clearTimeout(t); finish(false, "error"); };
+    img.src = url;
+  });
 }
 
-// Optional sound hooks (safe no-op if you don’t have audio yet)
-export function playSound(_state, _name) {}
+export async function loadAssets(files, onProgress){
+  const keys = Object.keys(files);
+  const total = keys.length;
+  const assets = {};
+  const missing = [];
+  let done = 0;
+
+  for(const k of keys){
+    const file = files[k];
+    onProgress?.({ done, total, file, phase:"loading" });
+
+    const res = await loadImageWithTimeout(file, 5000);
+    done++;
+    onProgress?.({ done, total, file, phase:"progress" });
+
+    if(res.ok) assets[k] = res.img;
+    else missing.push(`${file} (${res.reason})`);
+  }
+
+  onProgress?.({ done, total, file:"—", phase:"done", missing });
+
+  return { assets, missing };
+}
