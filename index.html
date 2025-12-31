@@ -12,11 +12,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <!-- WATCHDOG: runs even if main.js never loads -->
   <script>
+    // Boot watchdog — MUST be simple + unbreakable
     window.__BOOT_JS_OK = false;
 
-    function bootShowError(msg) {
+    window.bootShowError = function (msg) {
       const sub = document.getElementById("bootSub");
       const warn = document.getElementById("bootWarn");
       if (sub) sub.textContent = "JavaScript not running";
@@ -24,47 +24,54 @@
         warn.style.display = "block";
         warn.textContent = msg;
       }
-    }
+    };
 
-    // After a moment, if main.js didn't flip the flag, show why.
+    // If main.js never runs, show a clear message
     setTimeout(() => {
       if (window.__BOOT_JS_OK) return;
 
-      // If opened via file://, modules will fail.
       if (location.protocol === "file:") {
-        bootShowError(
-          "You opened this as a file (file://).\n\n" +
+        window.bootShowError(
+          "You opened this as file://\n\n" +
           "ES Modules won't load from file://.\n" +
-          "Open the GitHub Pages URL instead:\n" +
-          "https://YOURNAME.github.io/YOURREPO/\n"
+          "Open the GitHub Pages URL instead."
         );
         return;
       }
 
-      bootShowError(
-        "main.js did not load.\n\n" +
-        "Most likely causes:\n" +
-        "1) GitHub Pages is serving from the wrong folder (Settings → Pages)\n" +
-        "2) main.js path/name mismatch (must be next to index.html)\n" +
-        "3) Cached old deployment (hard refresh Ctrl/Cmd+Shift+R)\n\n" +
-        "Quick test:\n" +
-        "Open this in a new tab:\n" +
-        location.origin + location.pathname.replace(/\\/[^\\/]*$/, '/') + "main.js\n" +
-        "If you see a 404 page or HTML, the path/settings are wrong.\n"
+      window.bootShowError(
+        "main.js did not run.\n\n" +
+        "DevTools check:\n" +
+        "Network → main.js should be 200, not 404.\n\n" +
+        "Fix:\n" +
+        "Repo → Settings → Pages → Deploy from branch main / (root)\n" +
+        "AND make sure main.js is next to index.html."
       );
     }, 1200);
-  </script>
 
-  <!-- Module script (with an onerror that shows on-screen message) -->
-  <script type="module" src="./main.js"
-    onerror="bootShowError('main.js failed to load (404 or wrong Pages folder).\\n\\nGo to Settings → Pages and confirm it is serving from the branch root (/) where index.html + main.js live.')">
+    // Load main.js as a module (and catch 404 cleanly)
+    window.addEventListener("DOMContentLoaded", () => {
+      const s = document.createElement("script");
+      s.type = "module";
+      s.src = "./main.js";
+      s.onerror = () => {
+        window.bootShowError(
+          "main.js failed to load (404).\n\n" +
+          "Open this URL:\n" +
+          location.origin + location.pathname.replace(/\/[^\/]*$/, "/") + "main.js\n\n" +
+          "If it's 404: Settings → Pages is pointing to the wrong folder/branch,\n" +
+          "or main.js is not in the published folder."
+        );
+      };
+      document.head.appendChild(s);
+    });
   </script>
 </head>
 
 <body>
   <div class="page">
     <header class="topbar">
-      <div class="title">Cellular Platformer</div>
+      <div class="title">CELLULAR PLATFORMER</div>
       <div class="controls">
         Move: &larr;/&rarr; or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
       </div>
