@@ -2,120 +2,79 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cellular Platformer</title>
 
-  <!-- Font -->
+  <!-- Retro font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <!-- Your CSS in repo root -->
   <link rel="stylesheet" href="./style.css" />
 </head>
 
 <body>
-  <div class="appShell">
-    <header class="topBar">
-      <div class="brand">CELLULAR PLATFORMER</div>
-      <div class="controlsText">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="title">CELLULAR PLATFORMER</div>
+      <div class="controls">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
     </header>
 
-    <main class="gameFrame">
-      <canvas id="gameCanvas" width="960" height="540" aria-label="Game Canvas"></canvas>
+    <div class="stage">
+      <canvas id="game" width="960" height="540"></canvas>
 
-      <!-- Boot / Loading overlay -->
-      <div id="bootOverlay" class="bootOverlay bootVisible" role="dialog" aria-modal="true">
-        <div class="bootCard">
-          <div class="bootTitle">CELLULAR PLATFORMER</div>
-          <div id="bootStatus" class="bootStatus">Waiting for JavaScript…</div>
+      <!-- BOOT / LOADING -->
+      <div id="bootOverlay" class="overlay overlay--show">
+        <div class="card">
+          <div class="cardTitle">CELLULAR PLATFORMER</div>
+          <div id="bootSub" class="sub">Waiting for JavaScript…</div>
 
-          <div class="bootProgressTrack" aria-hidden="true">
-            <div id="bootProgressBar" class="bootProgressBar" style="width:0%"></div>
-          </div>
-
-          <div class="bootRow">
-            <div id="bootPercent" class="bootPercent">0%</div>
-            <button id="bootStartBtn" class="bootStartBtn" disabled>START</button>
-          </div>
-
-          <div class="bootHint">Assets must be in <code>/assets</code>.</div>
-          <pre id="bootError" class="bootError" hidden></pre>
-
-          <noscript>
-            <div class="bootNoscript">
-              JavaScript is disabled. Enable it to play.
+          <div class="progressWrap">
+            <div class="progressTrack">
+              <div id="bootBar" class="progressFill" style="width:0%"></div>
             </div>
-          </noscript>
+            <div id="bootText" class="pct">0%</div>
+          </div>
+
+          <div id="bootFile" class="file">—</div>
+          <pre id="bootWarn" class="warn" style="display:none;"></pre>
+
+          <div class="actions">
+            <button id="bootStartBtn" class="btn" disabled>START</button>
+          </div>
+
+          <div class="hint">Assets must be in <code>/assets</code>.</div>
         </div>
       </div>
-    </main>
 
-    <footer class="hudBar">
+      <!-- CHARACTER SELECT -->
+      <div id="charOverlay" class="overlay">
+        <div class="card">
+          <div class="cardTitle">CHOOSE YOUR CHARACTER</div>
+          <div class="sub">Tutorial runs once on Level 1.</div>
+
+          <div id="charGrid" class="charGrid"></div>
+
+          <div class="actions">
+            <button id="charStartBtn" class="btn" disabled>PLAY</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="hud">
       <div class="pill">Level: <span id="hudLevel">1</span></div>
       <div class="pill">Coins: <span id="hudCoins">0</span></div>
       <div class="pill">Dash: <span id="hudDash">Locked</span></div>
       <div class="pill">Speed: <span id="hudSpeed">Normal</span></div>
       <div class="pill">Throw: <span id="hudThrow">Ready</span></div>
-      <div class="pill hudRight">HP: <span id="hudHp">10/10</span></div>
+      <div class="pill right">HP: <span id="hudHp">10/10</span></div>
     </footer>
 
-    <div class="creditLine">Made with HTML Canvas · Hosted on GitHub Pages</div>
+    <div class="credit">Made with HTML Canvas · Hosted on GitHub Pages</div>
   </div>
 
-  <!-- Boot helpers MUST exist even if main.js fails -->
-  <script>
-    (function () {
-      const overlay  = document.getElementById('bootOverlay');
-      const statusEl = document.getElementById('bootStatus');
-      const barEl    = document.getElementById('bootProgressBar');
-      const pctEl    = document.getElementById('bootPercent');
-      const startBtn = document.getElementById('bootStartBtn');
-      const errEl    = document.getElementById('bootError');
-
-      function clamp01(v){ return Math.max(0, Math.min(1, v)); }
-
-      window.__BOOT = {
-        setStatus(text) {
-          if (statusEl) statusEl.textContent = text;
-        },
-        setProgress(p) {
-          const c = clamp01(Number(p) || 0);
-          const pct = Math.round(c * 100);
-          if (barEl) barEl.style.width = pct + '%';
-          if (pctEl) pctEl.textContent = pct + '%';
-        },
-        enableStart(on) {
-          if (startBtn) startBtn.disabled = !on;
-        },
-        onStart(fn) {
-          if (!startBtn) return;
-          startBtn.addEventListener('click', fn, { once: true });
-        },
-        hide() {
-          if (overlay) overlay.classList.remove('bootVisible');
-        },
-        showError(msg) {
-          if (errEl) {
-            errEl.hidden = false;
-            errEl.textContent = msg;
-          }
-          if (statusEl) statusEl.textContent = 'JavaScript not running';
-        }
-      };
-
-      // Used by <script onerror="...">
-      window.bootShowError = function (msg) {
-        window.__BOOT.showError(
-          (msg || 'main.js failed to load.') +
-          '\n\nFix:\n- index.html must load ./js/main.js (relative path)\n- DevTools → Network: js/main.js should be 200, not 404\n'
-        );
-      };
-    })();
-  </script>
-
-  <!-- ✅ IMPORTANT: RELATIVE path for GitHub Pages -->
-  <script type="module" src="./js/main.js"
-          onerror="bootShowError('main.js failed to load (404 or blocked).')"></script>
+  <!-- ✅ IMPORTANT: your main.js is in /js -->
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>
