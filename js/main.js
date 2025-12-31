@@ -7,13 +7,13 @@ import { createPlayer, updatePlayer, takeDamage, applyShopReset } from "./player
 import { moveAndCollide } from "./physics.js";
 import { createRenderer, draw } from "./render.js";
 import { spawnEnemiesForLevel, updateEnemies, handleEnemyPlayerCollisions } from "./enemies.js";
-import { clamp, aabb, now } from "./utils.js";
+import { clamp, aabb, now, rand } from "./utils.js";
 
 window.__BOOT_JS_OK = true;
 
 const $ = (id) => document.getElementById(id);
-
 const canvas = $("game");
+
 const ui = createUI();
 const input = createInput();
 const render = createRenderer(canvas);
@@ -36,49 +36,35 @@ const game = {
   camX: 0,
   camY: 0,
 
-  mode: "BOOT", // BOOT, CHAR, PLAY, PAUSE, STAGE, SHOP, LOADING, DEAD
+  mode: "BOOT", // BOOT, CHAR, PLAY, PAUSE, STAGE, SHOP
   selectedChar: null,
 
-  // tutorial (runs once on level 1)
   tutorialShown: false,
 
-  // stage stats clock
   stageStartT: 0,
+
+  // NEW: checkpoint/exit gating
+  checkpointReached: false,
+  exitUnlocked: false,
 };
 
 ui.bootSub.textContent = "JS OK — Loading assets…";
 
-function setBootProgress(done, total, file, sub){
-  const pct = total ? Math.round((done/total)*100) : 0;
-  ui.setBootProgress(pct, file, sub);
-}
-
-function bootWarnFromMissing(missing){
-  if(!missing?.length) return;
-  ui.showBootWarn(
-    "Some assets failed to load:\n" +
-    missing.map(m => `- ${m}`).join("\n") +
-    "\n\nFix checklist:\n" +
-    "• Folder name is exactly: assets\n" +
-    "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
-    "• Files are at /assets (not /assets/assets)\n"
-  );
-}
-
 async function boot(){
   const { assets, missing } = await loadAssets(FILES, (p)=>{
+    const pct = p.total ? Math.round((p.done/p.total)*100) : 0;
     if(p.phase === "loading"){
-      setBootProgress(p.done, p.total, `Loading: ${p.file}`, "JS OK — Loading assets…");
+      ui.setBootProgress(pct, `Loading: ${p.file}`, "JS OK — Loading assets…");
     } else if(p.phase === "progress"){
-      setBootProgress(p.done, p.total, `Loading: ${p.file}`);
+      ui.setBootProgress(pct, `Loading: ${p.file}`);
     } else if(p.phase === "done"){
-      setBootProgress(p.total, p.total, "—", "Assets loaded. Press START.");
+      ui.setBootProgress(100, "—", "Assets loaded. Press START.");
     }
   });
 
   game.assets = assets;
 
-  // (Important) preload character thumbs in DOM by setting src so UI can use .src
+  // Ensure DOM images have a usable src for char select
   for(const k of ["nate","kevin","scott","gilly","edgar"]){
     if(!assets[k]){
       const img = new Image();
@@ -87,7 +73,17 @@ async function boot(){
     }
   }
 
-  bootWarnFromMissing(missing);
+  if(missing?.length){
+    ui.showBootWarn(
+      "Some assets failed to load:\n" +
+      missing.map(m => `- ${m}`).join("\n") +
+      "\n\nFix checklist:\n" +
+      "• Folder name is exactly: assets\n" +
+      "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
+      "• Files are at /assets (not /assets/assets)\n"
+    );
+  }
+
   ui.bootReady();
 }
 
@@ -95,7 +91,10 @@ function startNewRun(level = 1){
   game.level = level;
   game.world = buildLevel(game.level);
   game.player = createPlayer(game.selectedChar || "nate");
+
+  // reset shop effects for the new run/level
   applyShopReset(game.player);
+
   game.enemies = spawnEnemiesForLevel(game.level, game.world);
   game.projectiles = [];
   game.fx = [];
@@ -105,20 +104,21 @@ function startNewRun(level = 1){
   game.player.stageDamage = 0;
   game.player.stageTime = 0;
 
-  // spawn position
   game.player.x = 90;
   game.player.y = 80;
+
+  // NEW: reset checkpoint/exit each level
+  game.checkpointReached = false;
+  game.exitUnlocked = false;
 
   game.mode = "PLAY";
 }
 
 function restartLevelWithReset(){
-  // resets everything (including shop effects)
   startNewRun(game.level);
 }
 
 function dieToLevel1(){
-  // back to level 1, full health, no tutorial again
   startNewRun(1);
   game.tutorialShown = true;
 }
@@ -166,7 +166,7 @@ function openShop(){
 
 function closeShop(){
   ui.hideShop();
-  game.mode = "PLAY";
+  game.mode = "PLAY"; // IMPORTANT: shop closing should NOT advance stage
 }
 
 function togglePause(){
@@ -199,7 +199,6 @@ function firePhone(){
 function updateCamera(){
   const p = game.player;
   const worldW = game.world.W;
-
   const target = (p.x + p.w/2) - game.W*0.45;
   game.camX = clamp(target, 0, Math.max(0, worldW - game.W));
   game.camY = 0;
@@ -214,21 +213,17 @@ function updateMovingPlatforms(dt){
     const dx = nx - s.x;
     s.x = nx;
 
-    // carry player if standing on it
     const p = game.player;
     const onTop = p.onGround &&
       (p.y + p.h) <= (s.y + 3) &&
       (p.x + p.w) > s.x &&
       p.x < (s.x + s.w) &&
       Math.abs((p.y+p.h) - s.y) < 4;
-    if(onTop){
-      p.x += dx;
-    }
+    if(onTop) p.x += dx;
   }
 }
 
 function updateProjectiles(dt){
-  // move, lifetime, collisions
   for(const pr of game.projectiles){
     pr.life -= dt;
     pr.x += pr.vx * dt;
@@ -236,7 +231,7 @@ function updateProjectiles(dt){
   }
   game.projectiles = game.projectiles.filter(p => p.life > 0);
 
-  // player phone hits enemies
+  // phone hits enemies
   for(const pr of game.projectiles){
     if(pr.kind !== "phone") continue;
     for(const e of game.enemies){
@@ -245,7 +240,6 @@ function updateProjectiles(dt){
         e.hp -= 1;
         e.hurtT = 0.25;
         pr.life = 0;
-        // drop coin chance
         if(Math.random() < 0.5){
           game.world.pickups.push({ x:e.x+e.w/2, y:e.y, w:18, h:18, kind:"coin", alive:true });
         }
@@ -267,11 +261,9 @@ function updateProjectiles(dt){
 function updateCoins(dt){
   const p = game.player;
 
-  // magnet pulls coins
   if(p.magnet > 0){
     for(const c of game.world.pickups){
-      if(!c.alive) continue;
-      if(c.kind !== "coin") continue;
+      if(!c.alive || c.kind !== "coin") continue;
       const dx = (p.x + p.w/2) - (c.x + c.w/2);
       const dy = (p.y + p.h/2) - (c.y + c.h/2);
       const d2 = dx*dx + dy*dy;
@@ -292,12 +284,11 @@ function updateCoins(dt){
   }
 }
 
-function updateHazards(dt){
+function updateHazards(){
   const p = game.player;
   for(const h of game.world.hazards){
     if(aabb(p, h)){
       takeDamage(p, 1);
-      // small bounce
       p.vy = -360;
       p.vx *= -0.4;
     }
@@ -305,7 +296,6 @@ function updateHazards(dt){
 }
 
 function updateFX(dt){
-  // dash trail
   const p = game.player;
   if(p.dashT > 0){
     for(let i=0;i<3;i++){
@@ -328,17 +318,20 @@ function updateFX(dt){
 function checkFlagAndDoor(){
   const p = game.player;
 
-  // flag = shop trigger
-  if(aabb(p, game.world.flag)){
-    // open shop once per stage, when you touch flag
-    if(!game._shopOpened){
-      game._shopOpened = true;
-      openShop();
-    }
+  // CHECKPOINT FLAG:
+  // - unlock/open exit
+  // - open shop
+  // - DO NOT advance stage
+  if(!game.checkpointReached && aabb(p, game.world.flag)){
+    game.checkpointReached = true;
+    game.exitUnlocked = true;
+    openShop();
+    return;
   }
 
-  // door = stage complete (boss gating: if boss exists, must be dead)
-  if(aabb(p, game.world.door)){
+  // DOOR:
+  // only works after checkpoint reached
+  if(game.exitUnlocked && aabb(p, game.world.door)){
     const livingBoss = game.enemies.some(e => e.boss && e.hp > 0);
     if(!livingBoss){
       openStageComplete();
@@ -349,7 +342,6 @@ function checkFlagAndDoor(){
 function loop(){
   requestAnimationFrame(loop);
 
-  // pause hotkey works anywhere except boot/char
   if(input.pausePressed() && (game.mode === "PLAY" || game.mode === "PAUSE")){
     togglePause();
   }
@@ -359,16 +351,13 @@ function loop(){
 
     updateMovingPlatforms(dt);
 
-    // update stage timer
     game.player.stageTime = now() - game.stageStartT;
 
     updatePlayer(game.player, input, dt);
 
-    // physics + collisions
     game.player.maxFall = 1600;
     moveAndCollide(game.player, game.world.solids, dt);
 
-    // enemies
     updateEnemies(game.enemies, game.player, game.world, game.projectiles, dt);
     for(const e of game.enemies){
       if(e.hp <= 0) continue;
@@ -377,32 +366,23 @@ function loop(){
     }
     handleEnemyPlayerCollisions(game.enemies, game.player);
 
-    // projectiles, pickups, hazards
     if(input.throwPressed()) firePhone();
     updateProjectiles(dt);
     updateCoins(dt);
-    updateHazards(dt);
+    updateHazards();
     updateFX(dt);
 
-    // camera
     updateCamera();
 
-    // death: fall or hp 0
     if(game.player.y > game.world.floorY + 260 || game.player.hp <= 0){
       dieToLevel1();
     }
 
-    // stage triggers
     checkFlagAndDoor();
   }
 
-  // UI/hud always updates
   ui.updateHUD(game);
-
-  // draw always
   draw(game);
-
-  // end-of-frame input
   input.frameEnd();
 }
 
@@ -418,9 +398,6 @@ ui.bootStartBtn?.addEventListener("click", ()=>{
     const picked = getSelected();
     game.selectedChar = picked || "nate";
     ui.hideChar();
-
-    // start game for real
-    game._shopOpened = false;
     startNewRun(1);
   };
 });
@@ -437,38 +414,15 @@ ui.restartBtn?.addEventListener("click", ()=>{
 
 ui.nextStageBtn?.addEventListener("click", ()=>{
   ui.hideStage();
-  game.mode = "LOADING";
-  // small arcade-ish delay then shop then next stage
-  setTimeout(()=>{
-    // open shop between stages
-    game._shopOpened = false;
-    openShop();
-    // after shop close we proceed
-  }, 250);
+  nextStage();
 });
 
 ui.shopCloseBtn?.addEventListener("click", ()=>{
-  ui.hideShop();
-  if(game.mode === "SHOP"){
-    // if we came from stage complete -> go next stage
-    if(game.player.stageTime > 0 && game.mode !== "PLAY"){
-      // If stageOverlay was just used, proceed
-      if(game.level >= 1 && game.player){
-        // go next stage now
-        nextStage();
-        game._shopOpened = false;
-      }
-    }
-    game.mode = "PLAY";
-  }
+  closeShop();
 });
 
-// Start
-boot().then(()=>{
-  // keep boot overlay visible until START pressed
-}).catch((err)=>{
+boot().catch((err)=>{
   ui.showBootWarn(`Loader crashed:\n${String(err)}`);
 });
 
-// kick off loop
 requestAnimationFrame(loop);
