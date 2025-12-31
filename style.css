@@ -1,54 +1,310 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Cellular Platformer</title>
+:root{
+  --bg0:#071023;
+  --bg1:#0a1633;
+  --panel:#0b142aee;
+  --panel2:#0b142acc;
+  --stroke:#2a3a63;
+  --stroke2:#3a4c7c;
+  --text:#e8f0ff;
+  --muted:#b7c6ea;
+  --warn:#ffcc66;
+  --danger:#ff4d4d;
+}
 
-  <!-- Retro font -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  color:var(--text);
+  background: radial-gradient(1200px 700px at 50% 15%, #132a5a 0%, var(--bg0) 50%, #020610 100%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
 
-  <link rel="stylesheet" href="./style.css" />
-</head>
+.page{
+  max-width: 1400px;
+  margin: 18px auto;
+  padding: 0 14px 22px;
+}
 
-<body>
-  <div class="page">
-    <header class="topbar">
-      <div class="topbar__left">
-        <div class="brand">Cellular Platformer</div>
-      </div>
-      <div class="topbar__right">
-        <div class="hint">
-          Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc
-        </div>
-      </div>
-    </header>
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(20,40,90,.85), rgba(10,18,40,.55));
+  border: 1px solid rgba(58,76,124,.55);
+  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+}
 
-    <main class="shell">
-      <div class="gamewrap">
-        <canvas id="game" width="1400" height="720"></canvas>
+.title{
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
 
-        <!-- UI overlays mount here -->
-        <div id="uiRoot" class="uiRoot"></div>
+.controls{
+  font-size: 12px;
+  color: var(--muted);
+  opacity: .95;
+}
 
-        <!-- HUD chips -->
-        <div id="hud" class="hud">
-          <div class="chip" id="hudLevel">Level: 1</div>
-          <div class="chip" id="hudCoins">Coins: 0</div>
-          <div class="chip" id="hudDash">Dash: Locked</div>
-          <div class="chip" id="hudSpeed">Speed: Normal</div>
-          <div class="chip" id="hudThrow">Throw: Ready</div>
-        </div>
-      </div>
+.shell{ margin-top: 14px; }
 
-      <footer class="footer">
-        Made with HTML Canvas · Hosted on GitHub Pages
-      </footer>
-    </main>
-  </div>
+.frame{
+  position: relative;
+  border-radius: 18px;
+  overflow:hidden;
+  background: #000;
+  border: 1px solid rgba(58,76,124,.55);
+  box-shadow: 0 22px 50px rgba(0,0,0,.45);
+}
 
-  <script type="module" src="./js/main.js"></script>
-</body>
-</html>
+/* Canvas: scale in CSS, keep internal resolution */
+#game{
+  display:block;
+  width: 100%;
+  height: auto;
+  background:#000;
+  image-rendering: pixelated;
+}
+
+.overlayRoot{
+  position:absolute;
+  inset:0;
+  pointer-events:none; /* overlays enable pointer-events selectively */
+}
+
+.overlay{
+  position:absolute;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+  pointer-events:auto;
+}
+
+.overlay--show{ display:flex; }
+
+.card{
+  width: 520px;
+  max-width: calc(100% - 32px);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  background: var(--panel);
+  border: 1px solid rgba(58,76,124,.75);
+  box-shadow: 0 22px 50px rgba(0,0,0,.5);
+}
+
+.card.wide{ width: 760px; }
+
+.cardTitle{
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.cardSub{
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.small{ font-size: 12px; }
+.dim{ color: var(--muted); }
+.warn{ color: var(--warn); margin-top:10px; white-space:pre-wrap; }
+
+.row{
+  display:flex;
+  gap: 10px;
+  justify-content:center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.btn{
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  background: rgba(20,40,90,.55);
+  border: 1px solid rgba(90,120,200,.45);
+  cursor:pointer;
+}
+.btn:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+.btn:hover:not(:disabled){
+  filter: brightness(1.08);
+}
+.btn--danger{
+  background: rgba(255,80,80,.14);
+  border-color: rgba(255,80,80,.45);
+}
+.btn--ghost{
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.12);
+}
+
+.progress{
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(90,120,200,.35);
+  background: rgba(0,0,0,.25);
+  overflow:hidden;
+}
+.progressFill{
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(80,170,255,.65), rgba(120,255,190,.55));
+}
+
+.grid{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.charBtn{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(10,18,40,.55);
+  border: 1px solid rgba(58,76,124,.55);
+  cursor:pointer;
+}
+.charBtn:hover{ filter: brightness(1.06); }
+.charBtn.active{ outline: 2px solid rgba(120,255,190,.75); }
+
+.charBtn img{
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+.hudbar{
+  margin-top: 10px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(10,18,40,.65), rgba(10,18,40,.35));
+  border: 1px solid rgba(58,76,124,.35);
+}
+
+.pill{
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(58,76,124,.45);
+  background: rgba(0,0,0,.18);
+  font-size: 12px;
+  color: var(--muted);
+}
+.pill b{ color: var(--text); }
+.pill.right{ margin-left:auto; }
+
+.footer{
+  text-align:center;
+  margin-top: 10px;
+  color: rgba(183,198,234,.7);
+  font-size: 12px;
+}
+
+/* Tutorial HUD box (top-left in game) */
+.hudBox{
+  position:absolute;
+  left: 16px;
+  top: 16px;
+  width: 260px;
+  border-radius: 14px;
+  padding: 12px 12px 10px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(58,76,124,.55);
+  backdrop-filter: blur(1px);
+  pointer-events:auto;
+}
+.hudTitle{
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.check{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+.check input{ transform: scale(1.05); }
+
+/* Shop */
+.shopTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.shopLeft{
+  display:flex;
+  align-items:center;
+  gap: 12px;
+}
+.avatar{
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+}
+.shopList{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.shopItem{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap: 12px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(58,76,124,.45);
+}
+.shopItem .name{
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 11px;
+}
+.shopItem .desc{
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.shopItem .left{ display:flex; flex-direction:column; }
+.shopItem .right{ display:flex; align-items:center; gap: 10px; }
+.cost{ color: var(--warn); font-size: 12px; }
+
+/* Results */
+.results{
+  display:grid;
+  gap: 8px;
+  font-size: 13px;
+  margin: 10px 0 6px;
+}
