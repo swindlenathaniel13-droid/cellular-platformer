@@ -38,12 +38,10 @@ const game = {
 
   mode: "BOOT", // BOOT, CHAR, PLAY, PAUSE, STAGE, SHOP
   selectedChar: null,
-
   tutorialShown: false,
 
   stageStartT: 0,
 
-  // NEW: checkpoint/exit gating
   checkpointReached: false,
   exitUnlocked: false,
 };
@@ -64,7 +62,7 @@ async function boot(){
 
   game.assets = assets;
 
-  // Ensure DOM images have a usable src for char select
+  // Make sure char images exist for selection
   for(const k of ["nate","kevin","scott","gilly","edgar"]){
     if(!assets[k]){
       const img = new Image();
@@ -87,27 +85,47 @@ async function boot(){
   ui.bootReady();
 }
 
-function startNewRun(level = 1){
+// ----------------------------------
+// IMPORTANT CHANGE:
+// startLevel() can either:
+// - resetPlayer=true  => coins/shop reset (death/restart/new run)
+// - resetPlayer=false => keep player (coins/shop persist across stages)
+// ----------------------------------
+function startLevel(level, { resetPlayer=false, fullHeal=false } = {}){
   game.level = level;
   game.world = buildLevel(game.level);
-  game.player = createPlayer(game.selectedChar || "nate");
 
-  // reset shop effects for the new run/level
-  applyShopReset(game.player);
+  if(!game.player || resetPlayer){
+    game.player = createPlayer(game.selectedChar || "nate");
+    applyShopReset(game.player);
+    game.player.coins = 0; // reset currency on hard reset
+  } else {
+    // keep coins + shop upgrades
+    game.player.charKey = game.selectedChar || game.player.charKey;
+    game.player.vx = 0;
+    game.player.vy = 0;
+    game.player.onGround = false;
+    game.player.dashT = 0;
+    game.player.throwCd = 0;
+    if(fullHeal) game.player.hp = game.player.hpMax; // optional: heal on next stage
+  }
 
-  game.enemies = spawnEnemiesForLevel(game.level, game.world);
-  game.projectiles = [];
-  game.fx = [];
-
+  // reset per-stage stats always
   game.stageStartT = now();
   game.player.stageCoins = 0;
   game.player.stageDamage = 0;
   game.player.stageTime = 0;
 
+  // respawn position
   game.player.x = 90;
   game.player.y = 80;
 
-  // NEW: reset checkpoint/exit each level
+  // rebuild enemies for the new level
+  game.enemies = spawnEnemiesForLevel(game.level, game.world);
+  game.projectiles = [];
+  game.fx = [];
+
+  // reset checkpoint/door gating each level
   game.checkpointReached = false;
   game.exitUnlocked = false;
 
@@ -115,17 +133,16 @@ function startNewRun(level = 1){
 }
 
 function restartLevelWithReset(){
-  startNewRun(game.level);
+  startLevel(game.level, { resetPlayer:true, fullHeal:true });
 }
 
 function dieToLevel1(){
-  startNewRun(1);
+  startLevel(1, { resetPlayer:true, fullHeal:true });
   game.tutorialShown = true;
 }
 
 function nextStage(){
-  game.level += 1;
-  startNewRun(game.level);
+  startLevel(game.level + 1, { resetPlayer:false, fullHeal:true }); // coins persist!
 }
 
 function openStageComplete(){
@@ -139,6 +156,7 @@ function openShop(){
   buildShop(ui, game, (it)=>{
     const p = game.player;
     if(p.coins < it.price) return;
+
     p.coins -= it.price;
 
     if(it.id === "heal"){
@@ -166,7 +184,7 @@ function openShop(){
 
 function closeShop(){
   ui.hideShop();
-  game.mode = "PLAY"; // IMPORTANT: shop closing should NOT advance stage
+  game.mode = "PLAY"; // closing shop should NOT advance stage
 }
 
 function togglePause(){
@@ -231,7 +249,6 @@ function updateProjectiles(dt){
   }
   game.projectiles = game.projectiles.filter(p => p.life > 0);
 
-  // phone hits enemies
   for(const pr of game.projectiles){
     if(pr.kind !== "phone") continue;
     for(const e of game.enemies){
@@ -247,7 +264,6 @@ function updateProjectiles(dt){
     }
   }
 
-  // enemy shots hit player
   const p = game.player;
   for(const pr of game.projectiles){
     if(pr.kind !== "enemyShot") continue;
@@ -278,8 +294,8 @@ function updateCoins(dt){
     if(!c.alive) continue;
     if(c.kind === "coin" && aabb(p, c)){
       c.alive = false;
-      p.coins += 1;
-      p.stageCoins += 1;
+      p.coins += 1;        // persists across stages now
+      p.stageCoins += 1;   // per-stage stat
     }
   }
 }
@@ -318,19 +334,13 @@ function updateFX(dt){
 function checkFlagAndDoor(){
   const p = game.player;
 
-  // CHECKPOINT FLAG:
-  // - unlock/open exit
-  // - open shop
-  // - DO NOT advance stage
   if(!game.checkpointReached && aabb(p, game.world.flag)){
     game.checkpointReached = true;
     game.exitUnlocked = true;
-    openShop();
+    openShop(); // checkpoint opens shop but does NOT complete stage
     return;
   }
 
-  // DOOR:
-  // only works after checkpoint reached
   if(game.exitUnlocked && aabb(p, game.world.door)){
     const livingBoss = game.enemies.some(e => e.boss && e.hp > 0);
     if(!livingBoss){
@@ -354,14 +364,11 @@ function loop(){
     game.player.stageTime = now() - game.stageStartT;
 
     updatePlayer(game.player, input, dt);
-
-    game.player.maxFall = 1600;
     moveAndCollide(game.player, game.world.solids, dt);
 
     updateEnemies(game.enemies, game.player, game.world, game.projectiles, dt);
     for(const e of game.enemies){
       if(e.hp <= 0) continue;
-      e.maxFall = 1600;
       moveAndCollide(e, game.world.solids, dt);
     }
     handleEnemyPlayerCollisions(game.enemies, game.player);
@@ -375,7 +382,7 @@ function loop(){
     updateCamera();
 
     if(game.player.y > game.world.floorY + 260 || game.player.hp <= 0){
-      dieToLevel1();
+      dieToLevel1(); // hard reset on death (coins reset)
     }
 
     checkFlagAndDoor();
@@ -398,14 +405,14 @@ ui.bootStartBtn?.addEventListener("click", ()=>{
     const picked = getSelected();
     game.selectedChar = picked || "nate";
     ui.hideChar();
-    startNewRun(1);
+    startLevel(1, { resetPlayer:true, fullHeal:true });
   };
 });
 
 ui.resumeBtn?.addEventListener("click", ()=>togglePause());
 
 ui.restartBtn?.addEventListener("click", ()=>{
-  const ok = confirm("Restart level?\n\nThis resets the level (including shop effects).");
+  const ok = confirm("Restart level?\n\nThis resets the level (including coins + shop effects).");
   if(ok){
     ui.hidePause();
     restartLevelWithReset();
@@ -414,7 +421,7 @@ ui.restartBtn?.addEventListener("click", ()=>{
 
 ui.nextStageBtn?.addEventListener("click", ()=>{
   ui.hideStage();
-  nextStage();
+  nextStage(); // coins persist here
 });
 
 ui.shopCloseBtn?.addEventListener("click", ()=>{
