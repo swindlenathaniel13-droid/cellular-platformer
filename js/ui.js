@@ -1,244 +1,190 @@
-const $ = (sel) => document.querySelector(sel);
+import { fmtTime } from "./utils.js";
 
-export function initUI(state) {
-  state.ui = {
-    root: $("#uiRoot"),
-    toastEl: null,
-    current: null,
+const $ = (id) => document.getElementById(id);
+const show = (el) => el.classList.add("overlay--show");
+const hide = (el) => el.classList.remove("overlay--show");
+
+export function createUI(){
+  const ui = {
+    bootOverlay: $("bootOverlay"),
+    bootBar: $("bootBar"),
+    bootText: $("bootText"),
+    bootSub: $("bootSub"),
+    bootFile: $("bootFile"),
+    bootWarn: $("bootWarn"),
+    bootStartBtn: $("bootStartBtn"),
+
+    charOverlay: $("charOverlay"),
+    charGrid: $("charGrid"),
+    charStartBtn: $("charStartBtn"),
+
+    pauseOverlay: $("pauseOverlay"),
+    resumeBtn: $("resumeBtn"),
+    restartBtn: $("restartBtn"),
+
+    stageOverlay: $("stageOverlay"),
+    stageStats: $("stageStats"),
+    nextStageBtn: $("nextStageBtn"),
+
+    shopOverlay: $("shopOverlay"),
+    shopList: $("shopList"),
+    shopCloseBtn: $("shopCloseBtn"),
+
+    hudLevel: $("hudLevel"),
+    hudCoins: $("hudCoins"),
+    hudDash: $("hudDash"),
+    hudSpeed: $("hudSpeed"),
+    hudThrow: $("hudThrow"),
+    hudHP: $("hudHP"),
   };
 
-  state.ui.toast = (msg, ms = 1200) => {
-    if (!state.ui.toastEl) {
-      const el = document.createElement("div");
-      el.className = "toast";
-      state.ui.root.appendChild(el);
-      state.ui.toastEl = el;
-    }
-    state.ui.toastEl.textContent = msg;
-    state.ui.toastEl.style.display = "block";
-    clearTimeout(state.ui._toastT);
-    state.ui._toastT = setTimeout(() => {
-      if (state.ui.toastEl) state.ui.toastEl.style.display = "none";
-    }, ms);
+  ui.setBootProgress = (pct, file, sub)=>{
+    if(ui.bootBar) ui.bootBar.style.width = `${pct}%`;
+    if(ui.bootText) ui.bootText.textContent = `${pct}%`;
+    if(ui.bootFile) ui.bootFile.textContent = file ?? "—";
+    if(ui.bootSub && sub) ui.bootSub.textContent = sub;
   };
 
-  state.ui.clear = () => {
-    const keep = state.ui.toastEl;
-    state.ui.root.innerHTML = "";
-    if (keep) state.ui.root.appendChild(keep);
-    state.ui.current = null;
+  ui.showBootWarn = (text)=>{
+    if(!ui.bootWarn) return;
+    ui.bootWarn.style.display = "block";
+    ui.bootWarn.textContent = text;
   };
 
-  state.ui.setOverlay = (el) => {
-    state.ui.clear();
-    state.ui.root.appendChild(el);
-    state.ui.current = el;
+  ui.bootReady = ()=>{
+    if(ui.bootSub) ui.bootSub.textContent = "Assets loaded. Press START.";
+    if(ui.bootStartBtn) ui.bootStartBtn.disabled = false;
   };
 
-  state.ui.updateHUD = () => updateHUD(state);
+  ui.showBoot = ()=>show(ui.bootOverlay);
+  ui.hideBoot = ()=>hide(ui.bootOverlay);
 
-  return state.ui;
+  ui.showChar = ()=>show(ui.charOverlay);
+  ui.hideChar = ()=>hide(ui.charOverlay);
+
+  ui.showPause = ()=>show(ui.pauseOverlay);
+  ui.hidePause = ()=>hide(ui.pauseOverlay);
+
+  ui.showStage = ()=>show(ui.stageOverlay);
+  ui.hideStage = ()=>hide(ui.stageOverlay);
+
+  ui.showShop = ()=>show(ui.shopOverlay);
+  ui.hideShop = ()=>hide(ui.shopOverlay);
+
+  ui.updateHUD = (game)=>{
+    const p = game.player;
+    ui.hudLevel.textContent = String(game.level);
+    ui.hudCoins.textContent = String(p.coins);
+    ui.hudDash.textContent = p.dashUnlocked ? (p.dashCd>0 ? "Cooldown" : "Ready") : "Locked";
+    ui.hudSpeed.textContent = (p.speedMult > 1.01) ? "Boost" : "Normal";
+    ui.hudThrow.textContent = (p.throwCd>0) ? "Cooldown" : "Ready";
+    ui.hudHP.textContent = `${p.hp}/${p.hpMax}`;
+  };
+
+  ui.setStageStats = (game)=>{
+    const p = game.player;
+    ui.stageStats.textContent =
+`Time:        ${fmtTime(p.stageTime)}
+Coins:       ${p.stageCoins}
+Damage Taken:${p.stageDamage}
+Level:       ${game.level}`;
+  };
+
+  return ui;
 }
 
-export function updateHUD(state) {
-  const levelEl = document.getElementById("hudLevel");
-  const coinsEl = document.getElementById("hudCoins");
-  const dashEl = document.getElementById("hudDash");
-  const speedEl = document.getElementById("hudSpeed");
-  const throwEl = document.getElementById("hudThrow");
-  if (!levelEl) return;
+export function buildCharSelect(ui, assets, onPick){
+  ui.charGrid.innerHTML = "";
 
-  levelEl.textContent = `Level: ${state.levelIndex}`;
-  coinsEl.textContent = `Coins: ${state.coins}`;
-  dashEl.textContent = state.player?.dashUnlocked ? "Dash: Ready" : "Dash: Locked";
-  speedEl.textContent = state.player?.speedBoost > 0 ? "Speed: Boost" : "Speed: Normal";
-  throwEl.textContent = state.player?.throwCd > 0 ? "Throw: Cooling" : "Throw: Ready";
+  const chars = [
+    { key:"nate",  label:"Nate" },
+    { key:"kevin", label:"Kevin" },
+    { key:"scott", label:"Scott" },
+    { key:"gilly", label:"Gilly" },
+    { key:"edgar", label:"Edgar" },
+  ];
+
+  let selected = null;
+  ui.charStartBtn.disabled = true;
+
+  for(const c of chars){
+    const btn = document.createElement("div");
+    btn.className = "charBtn";
+    btn.dataset.key = c.key;
+
+    const img = document.createElement("img");
+    img.src = assets?.[c.key]?.src || "";
+    img.alt = c.label;
+
+    const meta = document.createElement("div");
+    meta.innerHTML = `<div class="mono" style="font-size:11px;">${c.label}</div><div class="small dim">Pick your fighter.</div>`;
+
+    btn.appendChild(img);
+    btn.appendChild(meta);
+
+    btn.addEventListener("click", ()=>{
+      selected = c.key;
+      for(const el of ui.charGrid.querySelectorAll(".charBtn")) el.classList.remove("active");
+      btn.classList.add("active");
+      ui.charStartBtn.disabled = false;
+      onPick?.(selected);
+    });
+
+    ui.charGrid.appendChild(btn);
+  }
+
+  return () => selected;
 }
 
-export function showBootLoading(state, progress01, msg = "Loading assets…") {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">CELLULAR PLATFORMER</div>
-      <div class="panel__sub">${msg}</div>
-      <div class="progress"><div style="width:${Math.floor(progress01 * 100)}%"></div></div>
-      <div class="panel__sub" style="margin-top:10px;color:rgba(245,250,255,0.55);">
-        GitHub Pages is case-sensitive. /assets and filenames must match exactly.
-      </div>
-    </div>
-  `;
-  state.ui.setOverlay(overlay);
-}
+export function buildShop(ui, game, onBuy){
+  const p = game.player;
+  ui.shopList.innerHTML = "";
 
-export function showPressStart(state, onStart) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">CELLULAR PLATFORMER</div>
-      <div class="panel__sub">Assets loaded. Press START.</div>
-      <div class="btnbar"><button id="btnBootStart">START</button></div>
-    </div>
-  `;
-  overlay.querySelector("#btnBootStart").onclick = () => onStart?.();
-  state.ui.setOverlay(overlay);
-}
+  const items = [
+    { id:"heal", name:"+3 HP", price: 6, desc:"Emergency patch. Restores 3 HP (cannot exceed max)." },
+    { id:"maxhp", name:"+1 Max HP", price: 10, desc:"Permanent for this run. Raises max HP by 1." },
+    { id:"dash", name:"Unlock Dash", price: 14, desc:"Unlock Shift dash for this run." },
+    { id:"speed", name:"Speed Boost", price: 10, desc:"Run faster for this run." },
+    { id:"shield", name:"Shield (2 hits)", price: 12, desc:"Blocks 2 hits this run." },
+    { id:"magnet", name:"Coin Magnet", price: 10, desc:"Coins pull toward you for this run." },
+  ];
 
-export function showCharacterSelect(state, characters, onPick) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
+  for(const it of items){
+    const wrap = document.createElement("div");
+    wrap.className = "shopItem";
 
-  const cards = characters.map(c => `
-    <div class="card">
-      <img src="${c.preview}" alt="${c.label}">
-      <div class="name">${c.label}</div>
-      <button data-pick="${c.key}">Select</button>
-    </div>
-  `).join("");
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = it.name;
 
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">CHOOSE YOUR CHARACTER</div>
-      <div class="panel__sub">Tutorial runs once on Level 1.</div>
-      <div class="row">${cards}</div>
-    </div>
-  `;
+    const desc = document.createElement("div");
+    desc.className = "desc";
+    desc.textContent = it.desc;
 
-  overlay.querySelectorAll("button[data-pick]").forEach(btn => {
-    btn.onclick = () => onPick?.(btn.getAttribute("data-pick"));
-  });
+    const buyRow = document.createElement("div");
+    buyRow.className = "buyRow";
 
-  state.ui.setOverlay(overlay);
-}
+    const price = document.createElement("div");
+    price.className = "price";
+    price.textContent = `${it.price} coins`;
 
-export function showPauseMenu(state, handlers) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    btn.textContent = "BUY";
+    btn.disabled = p.coins < it.price;
 
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">PAUSED</div>
-      <div class="panel__sub">Esc resumes.</div>
-      <div class="btnbar" style="justify-content:flex-start;">
-        <button id="btnResume">Resume</button>
-        <button id="btnRestartLevel">Restart Level</button>
-        <button id="btnRestartRun">Restart Run</button>
-      </div>
-      <div class="panel__sub" style="margin-top:12px;">
-        Restart Level resets this stage’s pickups/enemies/damage.
-        Restart Run returns to Level 1 (tutorial won’t repeat).
-      </div>
-    </div>
-  `;
+    btn.addEventListener("click", ()=>{
+      onBuy?.(it);
+      buildShop(ui, game, onBuy);
+    });
 
-  overlay.querySelector("#btnResume").onclick = () => handlers.onResume?.();
-  overlay.querySelector("#btnRestartLevel").onclick = () => handlers.onRestartLevel?.();
-  overlay.querySelector("#btnRestartRun").onclick = () => handlers.onRestartRun?.();
+    buyRow.appendChild(price);
+    buyRow.appendChild(btn);
 
-  state.ui.setOverlay(overlay);
-}
+    wrap.appendChild(name);
+    wrap.appendChild(desc);
+    wrap.appendChild(buyRow);
 
-export function showConfirm(state, title, body, yesLabel, noLabel, onYes, onNo) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">${title}</div>
-      <div class="panel__sub">${body}</div>
-      <div class="btnbar">
-        <button id="btnNo">${noLabel}</button>
-        <button id="btnYes">${yesLabel}</button>
-      </div>
-    </div>
-  `;
-
-  overlay.querySelector("#btnYes").onclick = () => onYes?.();
-  overlay.querySelector("#btnNo").onclick = () => onNo?.();
-  state.ui.setOverlay(overlay);
-}
-
-export function showStageComplete(state, results, onShop, onNext) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">STAGE COMPLETE</div>
-      <div class="kv"><span>Coins</span><span>${results.coins}</span></div>
-      <div class="kv"><span>Damage</span><span>${results.damage}</span></div>
-      <div class="kv"><span>Time</span><span>${results.time}</span></div>
-      <div class="btnbar">
-        <button id="btnShop">Shop</button>
-        <button id="btnNext">Next Stage</button>
-      </div>
-      <div class="panel__sub" style="margin-top:10px;">Shop available once per stage (after clearing).</div>
-    </div>
-  `;
-  overlay.querySelector("#btnShop").onclick = () => onShop?.();
-  overlay.querySelector("#btnNext").onclick = () => onNext?.();
-  state.ui.setOverlay(overlay);
-}
-
-export function showShop(state, shopModel, onBuy, onContinue) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-
-  const rows = shopModel.items.map(it => {
-    const disabled = it.disabled ? "disabled" : "";
-    const sold = it.soldOut ? " (SOLD OUT)" : "";
-    return `
-      <div class="card" style="min-width:260px;">
-        <div class="name">${it.name}${sold}</div>
-        <div class="panel__sub" style="margin:0 0 10px 0;">${it.desc}</div>
-        <div class="kv"><span>Cost</span><span>${it.cost}</span></div>
-        <button data-buy="${it.id}" ${disabled}>BUY</button>
-      </div>
-    `;
-  }).join("");
-
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">SHOP</div>
-      <div class="panel__sub">Edgar: “Spend your coins wisely.”</div>
-      <div class="kv"><span>Coins</span><span>${state.coins}</span></div>
-      <div class="row">${rows}</div>
-      <div class="btnbar"><button id="btnContinue">Continue</button></div>
-    </div>
-  `;
-
-  overlay.querySelectorAll("button[data-buy]").forEach(btn => {
-    btn.onclick = () => onBuy?.(btn.getAttribute("data-buy"));
-  });
-  overlay.querySelector("#btnContinue").onclick = () => onContinue?.();
-  state.ui.setOverlay(overlay);
-}
-
-export function showNextStageLoading(state, progress01, titleLine) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">${titleLine}</div>
-      <div class="panel__sub">Preparing stage…</div>
-      <div class="progress"><div style="width:${Math.floor(progress01 * 100)}%"></div></div>
-    </div>
-  `;
-  state.ui.setOverlay(overlay);
-}
-
-export function showDeath(state, summary, onRestartRun) {
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `
-    <div class="panel">
-      <div class="panel__title">YOU DIED</div>
-      <div class="panel__sub">Back to Level 1 (tutorial won’t repeat). Full HP.</div>
-      <div class="kv"><span>Level Reached</span><span>${summary.level}</span></div>
-      <div class="kv"><span>Coins</span><span>${summary.coins}</span></div>
-      <div class="btnbar"><button id="btnRestart">Restart Run</button></div>
-    </div>
-  `;
-  overlay.querySelector("#btnRestart").onclick = () => onRestartRun?.();
-  state.ui.setOverlay(overlay);
+    ui.shopList.appendChild(wrap);
+  }
 }
