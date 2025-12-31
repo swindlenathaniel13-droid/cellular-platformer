@@ -78,7 +78,47 @@
     </div>
   </noscript>
 
-  <!-- IMPORTANT: keep main.js inside /js and load it as a module -->
+  <!-- Diagnostic: show a clear message if JS doesn't run -->
+  <script>
+    window.__BOOT_JS_OK = false;
+
+    function bootEl(id){ return document.getElementById(id); }
+    function bootFail(msg){
+      const warn = bootEl("bootWarn");
+      const sub = bootEl("bootSub");
+      if (warn){ warn.style.display="block"; warn.textContent = msg; }
+      if (sub){ sub.textContent = "JavaScript not running / crashed"; }
+    }
+
+    window.addEventListener("error", (e) => {
+      bootFail("JS Error:\n" + (e?.message || "Unknown error") + "\n\nCheck DevTools Console for details.");
+    });
+
+    window.addEventListener("unhandledrejection", (e) => {
+      bootFail("Promise Rejection:\n" + (e?.reason ? String(e.reason) : "Unknown") + "\n\nCheck DevTools Console for details.");
+    });
+
+    setTimeout(() => {
+      if (!window.__BOOT_JS_OK){
+        bootFail(
+`main.js did not run.
+
+Most common causes:
+• index.html is still pointing to /main.js or /js/main.js (with a leading slash)
+• GitHub Pages is not deploying from branch main / (root)
+• main.js crashed immediately because boot element IDs don't match
+
+Fix:
+• Ensure this script tag exists exactly:
+  <script type="module" src="./js/main.js"></script>
+
+Then hard refresh (Cmd+Shift+R).`
+        );
+      }
+    }, 1200);
+  </script>
+
+  <!-- IMPORTANT: must be relative (NO leading slash) -->
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>
