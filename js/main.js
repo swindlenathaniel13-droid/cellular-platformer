@@ -1,4 +1,6 @@
-// main.js (Loader Diagnostics + Main Loop base)
+// main.js (Loader Diagnostics + Boot)
+// FIRST LINE: flip watchdog flag so index.html knows JS is alive
+window.__BOOT_JS_OK = true;
 
 const CONFIG = {
   VIEW_W: 1280,
@@ -7,8 +9,8 @@ const CONFIG = {
 
 const ASSET_BASE = "./assets/";
 
-// Cache-bust for debugging deploy issues (change this number if needed)
-const CACHE_BUST = "v2025-12-30b";
+// Change this string whenever you deploy if caching is being annoying
+const CACHE_BUST = "v2025-12-30c";
 
 const FILES = {
   bg: "Background_Pic.png",
@@ -43,12 +45,11 @@ const bootStartBtn = $("bootStartBtn");
 const bootSub = $("bootSub");
 const bootFile = $("bootFile");
 
-// Other overlays (we won’t fully use them in this loader-fix pass, but keep references safe)
+// Character UI
 const charOverlay = $("charOverlay");
 const charGrid = $("charGrid");
 const charStartBtn = $("charStartBtn");
 
-// Minimal game container
 const game = {
   mode: "boot",
   assets: null,
@@ -56,18 +57,18 @@ const game = {
 };
 
 function showWarn(text){
+  if (!bootWarn) return;
   bootWarn.style.display = "block";
   bootWarn.textContent = text;
 }
 
 function setProgress(done, total){
   const pct = total ? Math.round((done / total) * 100) : 0;
-  bootBar.style.width = `${pct}%`;
-  bootText.textContent = `${pct}%`;
+  if (bootBar) bootBar.style.width = `${pct}%`;
+  if (bootText) bootText.textContent = `${pct}%`;
 }
 
 function safeUrl(file){
-  // Add cache bust so GitHub Pages doesn’t serve an old deploy forever
   return `${ASSET_BASE}${file}?${CACHE_BUST}`;
 }
 
@@ -79,7 +80,7 @@ function loadImageWithTimeout(file, timeoutMs = 4500){
     let finished = false;
 
     const finish = (ok, reason) => {
-      if(finished) return;
+      if (finished) return;
       finished = true;
       resolve({ ok, img: ok ? img : null, file, url, reason });
     };
@@ -101,14 +102,13 @@ async function loadAssets(files){
   const missing = [];
   let done = 0;
 
-  // Important: update UI immediately so we can tell JS is alive
-  bootSub.textContent = "JS OK — Loading assets…";
+  if (bootSub) bootSub.textContent = "JS OK — Loading assets…";
   setProgress(0, total);
 
-  // Load sequentially for super-clear debugging (you’ll see the filename change)
+  // Load sequentially for clear debugging
   for(const k of keys){
     const file = files[k];
-    bootFile.textContent = `Loading: ${file}`;
+    if (bootFile) bootFile.textContent = `Loading: ${file}`;
 
     const res = await loadImageWithTimeout(file, 4500);
 
@@ -118,20 +118,20 @@ async function loadAssets(files){
     if(res.ok){
       assets[k] = res.img;
     } else {
-      missing.push(`${file}  (${res.reason})`);
+      missing.push(`${file} (${res.reason})`);
     }
   }
 
-  bootFile.textContent = "—";
+  if (bootFile) bootFile.textContent = "—";
 
   if(missing.length){
     showWarn(
       "Some assets failed to load:\n" +
       missing.map(m => `- ${m}`).join("\n") +
-      "\n\nCheck:\n" +
-      "1) Folder name is exactly: assets\n" +
-      "2) Filenames match EXACT case (Coin.png vs coin.png)\n" +
-      "3) Files are at /assets (not /assets/assets)\n"
+      "\n\nFix checklist:\n" +
+      "• Folder name is exactly: assets\n" +
+      "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
+      "• Files are at /assets (not /assets/assets)\n"
     );
   }
 
@@ -139,7 +139,6 @@ async function loadAssets(files){
 }
 
 function buildCharSelect(){
-  // If you haven’t wired gameplay yet, at least show the select as proof JS/UI works
   charGrid.innerHTML = "";
 
   const chars = [
@@ -183,36 +182,26 @@ function hide(el){ el.classList.remove("overlay--show"); }
 function show(el){ el.classList.add("overlay--show"); }
 
 async function startBoot(){
-  // If you ever see “Waiting for JavaScript…” forever, main.js is not running.
-  bootSub.textContent = "JS OK — Starting loader…";
-  bootStartBtn.disabled = true;
+  if (bootSub) bootSub.textContent = "JS OK — Starting loader…";
+  if (bootStartBtn) bootStartBtn.disabled = true;
 
-  // Catch module/script errors and show them on-screen
-  window.addEventListener("error", (e) => {
-    showWarn(`JS Error:\n${e.message}`);
-  });
+  game.assets = await loadAssets(FILES);
 
-  try {
-    game.assets = await loadAssets(FILES);
-    bootSub.textContent = "Assets loaded. Press START.";
-    bootStartBtn.disabled = false;
-  } catch (err){
-    showWarn(`Loader crashed:\n${String(err)}`);
-  }
+  if (bootSub) bootSub.textContent = "Assets loaded. Press START.";
+  if (bootStartBtn) bootStartBtn.disabled = false;
 }
 
-bootStartBtn.addEventListener("click", () => {
+bootStartBtn?.addEventListener("click", () => {
   hide(bootOverlay);
   show(charOverlay);
   buildCharSelect();
 });
 
-charStartBtn.addEventListener("click", () => {
-  // Temporary: just confirm we made it this far
-  alert(`Selected: ${game.selectedCharKey}\nNext: hook in your game loop/world here.`);
+charStartBtn?.addEventListener("click", () => {
+  alert(`Selected: ${game.selectedCharKey}\nNext: hook into your game loop/world here.`);
 });
 
-// Minimal render loop so canvas stays “alive”
+// Keep canvas alive
 function render(){
   ctx.clearRect(0,0,CONFIG.VIEW_W,CONFIG.VIEW_H);
   ctx.fillStyle = "#000";
@@ -220,5 +209,8 @@ function render(){
   requestAnimationFrame(render);
 }
 
-startBoot();
+startBoot().catch(err => {
+  showWarn(`Loader crashed:\n${String(err)}`);
+});
+
 requestAnimationFrame(render);
