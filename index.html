@@ -5,16 +5,60 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
 
-  <!-- IMPORTANT: RELATIVE paths for GitHub Pages -->
   <link rel="stylesheet" href="./style.css" />
 
-  <!-- Retro-ish font -->
+  <!-- Retro font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <!-- Module script -->
-  <script type="module" src="./main.js"></script>
+  <!-- WATCHDOG: runs even if main.js never loads -->
+  <script>
+    window.__BOOT_JS_OK = false;
+
+    function bootShowError(msg) {
+      const sub = document.getElementById("bootSub");
+      const warn = document.getElementById("bootWarn");
+      if (sub) sub.textContent = "JavaScript not running";
+      if (warn) {
+        warn.style.display = "block";
+        warn.textContent = msg;
+      }
+    }
+
+    // After a moment, if main.js didn't flip the flag, show why.
+    setTimeout(() => {
+      if (window.__BOOT_JS_OK) return;
+
+      // If opened via file://, modules will fail.
+      if (location.protocol === "file:") {
+        bootShowError(
+          "You opened this as a file (file://).\n\n" +
+          "ES Modules won't load from file://.\n" +
+          "Open the GitHub Pages URL instead:\n" +
+          "https://YOURNAME.github.io/YOURREPO/\n"
+        );
+        return;
+      }
+
+      bootShowError(
+        "main.js did not load.\n\n" +
+        "Most likely causes:\n" +
+        "1) GitHub Pages is serving from the wrong folder (Settings → Pages)\n" +
+        "2) main.js path/name mismatch (must be next to index.html)\n" +
+        "3) Cached old deployment (hard refresh Ctrl/Cmd+Shift+R)\n\n" +
+        "Quick test:\n" +
+        "Open this in a new tab:\n" +
+        location.origin + location.pathname.replace(/\\/[^\\/]*$/, '/') + "main.js\n" +
+        "If you see a 404 page or HTML, the path/settings are wrong.\n"
+      );
+    }, 1200);
+  </script>
+
+  <!-- Module script (with an onerror that shows on-screen message) -->
+  <script type="module" src="./main.js"
+    onerror="bootShowError('main.js failed to load (404 or wrong Pages folder).\\n\\nGo to Settings → Pages and confirm it is serving from the branch root (/) where index.html + main.js live.')">
+  </script>
 </head>
 
 <body>
@@ -36,8 +80,6 @@
           <div class="overlay overlay--show" id="bootOverlay">
             <div class="card">
               <div class="cardTitle">CELLULAR PLATFORMER</div>
-
-              <!-- This text changes if JS is running -->
               <div class="cardSub" id="bootSub">Waiting for JavaScript…</div>
 
               <div class="progress">
@@ -45,11 +87,9 @@
               </div>
 
               <div class="small" id="bootText">0%</div>
-
-              <!-- Shows which file is currently loading -->
               <div class="small dim" id="bootFile">—</div>
 
-              <div class="warn small" id="bootWarn" style="display:none;"></div>
+              <div class="warn small" id="bootWarn" style="display:none; white-space:pre-wrap;"></div>
 
               <div class="row">
                 <button class="btn" id="bootStartBtn" disabled>START</button>
@@ -68,96 +108,6 @@
                 <button class="btn" id="charStartBtn" disabled>START RUN</button>
               </div>
             </div>
-          </div>
-
-          <!-- PAUSE -->
-          <div class="overlay" id="pauseOverlay">
-            <div class="card">
-              <div class="cardTitle">PAUSED</div>
-              <div class="cardSub">Take a breath. The robots will wait.</div>
-              <div class="row">
-                <button class="btn" id="pauseResumeBtn">RESUME</button>
-                <button class="btn btn--danger" id="pauseRestartBtn">RESTART LEVEL</button>
-              </div>
-              <div class="row">
-                <button class="btn btn--ghost" id="pauseQuitBtn">QUIT RUN</button>
-              </div>
-              <div class="small dim">Restarting resets level + shop effects for this run.</div>
-            </div>
-          </div>
-
-          <!-- CONFIRM -->
-          <div class="overlay" id="confirmOverlay">
-            <div class="card">
-              <div class="cardTitle" id="confirmTitle">CONFIRM</div>
-              <div class="cardSub" id="confirmMsg">Are you sure?</div>
-              <div class="row">
-                <button class="btn btn--danger" id="confirmYesBtn">YES</button>
-                <button class="btn" id="confirmNoBtn">NO</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- STAGE COMPLETE -->
-          <div class="overlay" id="stageOverlay">
-            <div class="card wide">
-              <div class="cardTitle">STAGE COMPLETE</div>
-              <div class="results">
-                <div><span class="dim">Coins Collected:</span> <b id="rCoins">0</b></div>
-                <div><span class="dim">Damage Taken:</span> <b id="rDmg">0</b></div>
-                <div><span class="dim">Time:</span> <b id="rTime">0.0s</b></div>
-              </div>
-              <div class="row">
-                <button class="btn" id="stageContinueBtn">CONTINUE</button>
-              </div>
-              <div class="small dim">Shop opens once after each stage.</div>
-            </div>
-          </div>
-
-          <!-- SHOP -->
-          <div class="overlay" id="shopOverlay">
-            <div class="card wide">
-              <div class="shopTop">
-                <div class="shopLeft">
-                  <img id="shopKeeperImg" class="avatar" alt="shopkeeper" />
-                  <div>
-                    <div class="cardTitle" style="margin:0;">SHOP</div>
-                    <div class="small dim">Edgar: “Spend your coins wisely.”</div>
-                  </div>
-                </div>
-                <div class="shopRight">
-                  <div class="pill">Coins: <b id="shopCoins">0</b></div>
-                </div>
-              </div>
-
-              <div class="shopList" id="shopList"></div>
-
-              <div class="row">
-                <button class="btn" id="shopDoneBtn">NEXT STAGE</button>
-              </div>
-              <div class="small dim">Shop effects are run-only. Death or Restart clears them.</div>
-            </div>
-          </div>
-
-          <!-- NEXT STAGE LOADING -->
-          <div class="overlay" id="nextOverlay">
-            <div class="card">
-              <div class="cardTitle">LOADING NEXT STAGE…</div>
-              <div class="cardSub">Generating platforms + enemies</div>
-              <div class="progress">
-                <div class="progressFill" id="nextBar"></div>
-              </div>
-              <div class="small dim" id="nextText">0%</div>
-            </div>
-          </div>
-
-          <!-- TUTORIAL -->
-          <div class="hudBox" id="tutorialBox" style="display:none;">
-            <div class="hudTitle">HOW TO PLAY</div>
-            <label class="check"><input type="checkbox" id="tMove" /> Move (A/D or &larr;/&rarr;)</label>
-            <label class="check"><input type="checkbox" id="tJump" /> Jump (Space)</label>
-            <label class="check"><input type="checkbox" id="tThrow" /> Throw (F)</label>
-            <div class="small dim">Complete all to hide this box.</div>
           </div>
 
         </div>
