@@ -1,93 +1,70 @@
 import { CONFIG } from "./config.js";
-import { clamp, mulberry32 } from "./utils.js";
+import { rand, randi } from "./utils.js";
 
-function rect(x, y, w, h) {
-  return { x, y, w, h };
-}
-
-export function createWorld(levelIndex, runSeed) {
-  const rng = mulberry32((runSeed + levelIndex * 99991) >>> 0);
-
-  const groundY = CONFIG.BASE_GROUND_Y;
-  const length = CONFIG.LEVEL_LENGTH + (levelIndex - 1) * 260;
-
-  // Ground (continuous)
-  const platforms = [rect(0, groundY, length, 64)];
-
-  // Build a “critical path” of platforms leading to the exit platform
-  const path = [];
-  let x = 260;
-  let yTop = groundY - 90; // first step
-
-  const yLevels = CONFIG.PATH_Y_LEVELS.slice();
-  // as levels rise, prefer higher platforms a bit more
-  const heightBias = clamp((levelIndex - 1) / 10, 0, 0.6);
-
-  while (x < length - 620) {
-    const step = CONFIG.PATH_STEP_X_MIN + rng() * (CONFIG.PATH_STEP_X_MAX - CONFIG.PATH_STEP_X_MIN);
-    x += step;
-
-    // choose yTop from levels
-    const pickHigh = rng() < heightBias;
-    const idx = pickHigh ? Math.floor(rng() * (yLevels.length - 1)) + 1 : Math.floor(rng() * 2);
-    yTop = clamp(yLevels[idx], 280, groundY - 40);
-
-    const w = 220 + Math.floor(rng() * 180);
-    const plat = rect(x, yTop, w, 34);
-    platforms.push(plat);
-    path.push(plat);
-  }
-
-  // Goal platform near end (exit sits here)
-  const goalPlat = rect(length - 520, groundY - 200, 360, 34);
-  platforms.push(goalPlat);
-
-  // Add 2-3 “stair” platforms so goal is always reachable
-  platforms.push(rect(goalPlat.x - 260, groundY - 120, 200, 34));
-  platforms.push(rect(goalPlat.x - 420, groundY - 60, 220, 34));
-
-  // Coins sprinkled on some platforms
-  const coins = [];
-  for (let i = 0; i < Math.min(10 + levelIndex * 2, 28); i++) {
-    const p = platforms[1 + Math.floor(rng() * (platforms.length - 1))];
-    const cx = p.x + 30 + rng() * (p.w - 60);
-    const cy = p.y - 26 - rng() * 16;
-    coins.push({ x: cx, y: cy, r: 14, collected: false });
-  }
-
-  // Checkpoint flag (visible, not behind exit)
-  const checkpoint = {
-    x: goalPlat.x - 120,
-    y: goalPlat.y - 72,
-    w: 54,
-    h: 72
-  };
-
-  // Exit door sits fully on goal platform
-  const exitW = 92;
-  const exitH = 140;
-  const exit = {
-    x: goalPlat.x + goalPlat.w - exitW - 18,
-    y: goalPlat.y - exitH,
-    w: exitW,
-    h: exitH
-  };
-
-  // Spawn point
-  const spawn = { x: 90, y: groundY - CONFIG.PLAYER_H - 4 };
-
-  // Optional hazards (none for now; add later)
+export function buildLevel(level){
+  const solids = [];
   const hazards = [];
+  const pickups = [];
 
-  return {
-    length,
-    groundY,
-    platforms,
-    hazards,
-    coins,
-    checkpoint,
-    exit,
-    spawn,
-    goalPlat,
-  };
+  const W = CONFIG.LEVEL_W;
+  const floorY = CONFIG.FLOOR_Y;
+
+  // Floor segments with gaps (harder as level increases)
+  let x = 0;
+  const gapMin = CONFIG.PLATFORM_MIN_GAP + Math.min(110, level*8);
+  const gapMax = CONFIG.PLATFORM_MAX_GAP + Math.min(160, level*10);
+
+  while(x < W){
+    const segW = randi(260, 520);
+    solids.push({ x, y: floorY, w: segW, h: 70, kind:"floor", solid:true });
+    x += segW;
+
+    const gap = randi(gapMin, gapMax);
+    x += gap;
+  }
+
+  // Mid platforms
+  const platformCount = 6 + Math.min(8, Math.floor(level/2));
+  for(let i=0;i<platformCount;i++){
+    const pw = randi(180, 360);
+    const px = randi(120, W - pw - 160);
+    const py = randi(220, 390);
+    solids.push({ x:px, y:py, w:pw, h:28, kind:"plat", solid:true });
+  }
+
+  // Moving platforms later
+  if(level >= CONFIG.MOVING_PLAT_FROM_LEVEL){
+    const mw = randi(160, 260);
+    const my = randi(240, 360);
+    const mx0 = randi(180, W - mw - 200);
+    solids.push({
+      x: mx0, y: my, w: mw, h: 26, kind:"move", solid:true,
+      move: { x0: mx0, x1: mx0 + randi(120, 240), t: Math.random()*10 }
+    });
+  }
+
+  // Spikes hazard later
+  if(level >= CONFIG.SPIKES_FROM_LEVEL){
+    const spikeCount = 2 + Math.min(4, Math.floor(level/3));
+    for(let i=0;i<spikeCount;i++){
+      const hx = randi(220, W-260);
+      hazards.push({ x:hx, y: floorY-10, w: 70, h: 14, kind:"spikes" });
+    }
+  }
+
+  // Coins sprinkled
+  const coinCount = 18 + Math.min(16, level*2);
+  for(let i=0;i<coinCount;i++){
+    const cx = randi(120, W-120);
+    const cy = randi(150, 410);
+    pickups.push({ x:cx, y:cy, w:18, h:18, kind:"coin", alive:true });
+  }
+
+  // Checkpoint flag (always visible, never behind door)
+  const flag = { x: W - 520, y: floorY - 86, w: 40, h: 86, kind:"flag", solid:false };
+
+  // Exit door on a platform (ensure it sits on ground)
+  const door = { x: W - 170, y: floorY - 88, w: 60, h: 88, kind:"door", solid:false };
+
+  return { W, floorY, solids, hazards, pickups, flag, door };
 }
