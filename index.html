@@ -35,7 +35,7 @@
             <div id="bootFile" class="file">—</div>
           </div>
 
-          <div id="bootWarn" class="warn" style="display:none;"></div>
+          <div id="bootWarn" class="warn" style="display:none; white-space:pre-wrap;"></div>
 
           <button id="bootStartBtn" class="btn" disabled>START</button>
           <div class="tiny">Assets must be in <b>/assets</b>.</div>
@@ -78,47 +78,48 @@
     </div>
   </noscript>
 
-  <!-- Diagnostic: show a clear message if JS doesn't run -->
+  <!-- Boot diagnostics (safe: does NOT include any </script> text anywhere) -->
   <script>
     window.__BOOT_JS_OK = false;
 
     function bootEl(id){ return document.getElementById(id); }
-    function bootFail(msg){
+
+    window.bootFail = function(msg){
       const warn = bootEl("bootWarn");
-      const sub = bootEl("bootSub");
+      const sub  = bootEl("bootSub");
       if (warn){ warn.style.display="block"; warn.textContent = msg; }
       if (sub){ sub.textContent = "JavaScript not running / crashed"; }
-    }
+    };
 
     window.addEventListener("error", (e) => {
-      bootFail("JS Error:\n" + (e?.message || "Unknown error") + "\n\nCheck DevTools Console for details.");
+      window.bootFail("JS Error:\n" + (e && e.message ? e.message : "Unknown error") + "\n\nOpen DevTools Console for details.");
     });
 
     window.addEventListener("unhandledrejection", (e) => {
-      bootFail("Promise Rejection:\n" + (e?.reason ? String(e.reason) : "Unknown") + "\n\nCheck DevTools Console for details.");
+      window.bootFail("Promise Rejection:\n" + (e && e.reason ? String(e.reason) : "Unknown") + "\n\nOpen DevTools Console for details.");
     });
 
     setTimeout(() => {
       if (!window.__BOOT_JS_OK){
-        bootFail(
-`main.js did not run.
-
-Most common causes:
-• index.html is still pointing to /main.js or /js/main.js (with a leading slash)
-• GitHub Pages is not deploying from branch main / (root)
-• main.js crashed immediately because boot element IDs don't match
-
-Fix:
-• Ensure this script tag exists exactly:
-  <script type="module" src="./js/main.js"></script>
-
-Then hard refresh (Cmd+Shift+R).`
+        window.bootFail(
+          "main.js did not run.\n\n" +
+          "Common causes:\n" +
+          "• Wrong script path (must be ./js/main.js)\n" +
+          "• GitHub Pages deploy is not from main / (root)\n" +
+          "• main.js crashed early (missing DOM IDs / import error)\n\n" +
+          "Check DevTools:\n" +
+          "• Network: ./js/main.js should be 200 (not 404)\n" +
+          "• Console: shows the real error\n\n" +
+          "Then hard refresh: Cmd+Shift+R"
         );
       }
     }, 1200);
   </script>
 
-  <!-- IMPORTANT: must be relative (NO leading slash) -->
-  <script type="module" src="./js/main.js"></script>
+  <!-- IMPORTANT: relative path, and onerror calls bootFail -->
+  <script type="module"
+          src="./js/main.js"
+          onerror="bootFail('Failed to load ./js/main.js (404 or blocked).\\n\\nCheck: index.html must reference ./js/main.js and GitHub Pages deploy root is correct.');">
+  </script>
 </body>
 </html>
