@@ -9,20 +9,47 @@ export function buildLevel(level){
   const W = CONFIG.LEVEL_W;
   const floorY = CONFIG.FLOOR_Y;
 
+  // ------------------------------------
+  // GOAL PAD (guaranteed solid under flag+door)
+  // ------------------------------------
+  const goalPadW = 720;
+  const goalPadX = Math.max(1200, W - (goalPadW + 160));
+  solids.push({ x: goalPadX, y: floorY, w: goalPadW, h: 70, kind:"goalpad", solid:true });
+
+  // Place flag + door ON the goal pad, spaced apart (never hidden)
+  const flag = {
+    x: goalPadX + 140,
+    y: floorY - 86,
+    w: 40,
+    h: 86,
+    kind:"flag",
+    solid:false
+  };
+
+  const door = {
+    x: goalPadX + goalPadW - 200,
+    y: floorY - 88,
+    w: 60,
+    h: 88,
+    kind:"door",
+    solid:false
+  };
+
   // -----------------------------
-  // 1) FLOOR: safer early segments
+  // FLOOR: create segments + gaps BUT avoid breaking goal pad area
   // -----------------------------
   let x = 0;
 
-  // Make Level 1 forgiving; scale difficulty slowly
   const gapMin = CONFIG.PLATFORM_MIN_GAP + Math.min(40, level * 4);
   const gapMax = CONFIG.PLATFORM_MAX_GAP + Math.min(80, level * 6);
 
-  // Always give a safe start runway
+  // Safe start runway
   solids.push({ x: 0, y: floorY, w: 720, h: 70, kind:"floor", solid:true });
   x = 720;
 
-  while(x < W){
+  // Build floor until just before goalPadX
+  const stopAt = goalPadX - 120;
+  while(x < stopAt){
     const segW = randi(300, 560);
     solids.push({ x, y: floorY, w: segW, h: 70, kind:"floor", solid:true });
     x += segW;
@@ -32,22 +59,20 @@ export function buildLevel(level){
   }
 
   // -----------------------------
-  // 2) MAIN ROUTE: guaranteed jumps
+  // MAIN ROUTE: guaranteed platform chain to the goal pad
   // -----------------------------
-  // We build a chain of platforms where horizontal gaps are always jumpable.
   const routeStartX = 520;
   let px = routeStartX;
   let py = randi(330, 380);
 
-  const routeEndX = W - 760;
-  const maxStep = 210 + Math.min(30, level * 2);   // safe horizontal progress per jump
-  const minStep = 140;
+  const routeEndX = goalPadX - 260;
+  const maxStep = 190 + Math.min(35, level * 2); // jumpable spacing
+  const minStep = 130;
 
   while(px < routeEndX){
     const pw = randi(180, 300);
     solids.push({ x: px, y: py, w: pw, h: 28, kind:"plat", solid:true });
 
-    // Put a couple coins on the route
     if(Math.random() < 0.7){
       pickups.push({ x: px + pw*0.35, y: py - 40, w:18, h:18, kind:"coin", alive:true });
       pickups.push({ x: px + pw*0.70, y: py - 40, w:18, h:18, kind:"coin", alive:true });
@@ -56,14 +81,13 @@ export function buildLevel(level){
     const step = randi(minStep, maxStep);
     px += pw + step;
 
-    // gentle vertical changes
-    const dy = randi(-60, 60);
-    py = clamp(py + dy, 230, 390);
+    const dy = randi(-55, 55);
+    py = clamp(py + dy, 235, 395);
   }
 
-  // -----------------------------
-  // 3) EXTRA RANDOM PLATFORMS (optional challenge)
-  // -----------------------------
+  // ------------------------------------
+  // EXTRA RANDOM PLATFORMS (optional spice)
+  // ------------------------------------
   const extraCount = 2 + Math.min(6, Math.floor(level/2));
   for(let i=0;i<extraCount;i++){
     const pw = randi(160, 300);
@@ -77,7 +101,7 @@ export function buildLevel(level){
   }
 
   // -----------------------------
-  // 4) MOVING PLATFORM later
+  // MOVING PLATFORM later
   // -----------------------------
   if(level >= CONFIG.MOVING_PLAT_FROM_LEVEL){
     const mw = randi(170, 260);
@@ -90,36 +114,17 @@ export function buildLevel(level){
   }
 
   // -----------------------------
-  // 5) SPIKES later
+  // SPIKES later
   // -----------------------------
   if(level >= CONFIG.SPIKES_FROM_LEVEL){
     const spikeCount = 2 + Math.min(4, Math.floor(level/3));
     for(let i=0;i<spikeCount;i++){
       const hx = randi(820, W-820);
+      // Avoid placing spikes on the goal pad zone
+      if(hx > goalPadX - 120 && hx < goalPadX + goalPadW + 120) continue;
       hazards.push({ x:hx, y: floorY-10, w: 70, h: 14, kind:"spikes" });
     }
   }
-
-  // -----------------------------
-  // 6) FLAG + DOOR placement (never behind)
-  // -----------------------------
-  const flag = {
-    x: W - 640,
-    y: floorY - 86,
-    w: 40,
-    h: 86,
-    kind:"flag",
-    solid:false
-  };
-
-  const door = {
-    x: W - 200,
-    y: floorY - 88,
-    w: 60,
-    h: 88,
-    kind:"door",
-    solid:false
-  };
 
   return { W, floorY, solids, hazards, pickups, flag, door };
 }
