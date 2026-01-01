@@ -1,201 +1,127 @@
-export function createUI(){
-  const $ = (id) => document.getElementById(id);
+// js/ui.js
+export function $(id){ return document.getElementById(id); }
 
-  const boot = {
-    overlay: $("bootOverlay"),
-    bar: $("bootBar"),
-    text: $("bootText"),
-    sub: $("bootSub"),
-    file: $("bootFile"),
-    warn: $("bootWarn"),
-    startBtn: $("bootStartBtn")
-  };
+export function show(el){ el?.classList.add("overlay--show"); }
+export function hide(el){ el?.classList.remove("overlay--show"); }
 
-  const chars = {
-    overlay: $("charOverlay"),
-    grid: $("charGrid"),
-    startBtn: $("charStartBtn")
-  };
-
-  const pause = {
-    overlay: $("pauseOverlay"),
-    resumeBtn: $("pauseResumeBtn"),
-    restartRunBtn: $("pauseRestartRunBtn")
-  };
-
-  const shop = {
-    overlay: $("shopOverlay"),
-    coins: $("shopCoins"),
-    list: $("shopList"),
-    contBtn: $("shopContinueBtn")
-  };
-
-  const stage = {
-    overlay: $("stageOverlay"),
-    stats: $("stageStats"),
-    contBtn: $("stageContinueBtn")
-  };
-
-  const death = {
-    overlay: $("deathOverlay"),
-    restartBtn: $("deathRestartBtn")
-  };
-
-  const hud = {
-    level: $("hudLevel"),
-    coins: $("hudCoins"),
-    dash: $("hudDash"),
-    speed: $("hudSpeed"),
-    hp: $("hudHP")
-  };
-
-  const show = (el) => el && el.classList.add("overlay--show");
-  const hide = (el) => el && el.classList.remove("overlay--show");
-
-  return {
-    boot, chars, pause, shop, stage, death, hud,
-    show, hide
-  };
-}
-
-export function setBootProgress(ui, done, total, file){
+export function setBootProgress(done, total, file){
   const pct = total ? Math.round((done/total)*100) : 0;
-  if (ui.boot.bar) ui.boot.bar.style.width = `${pct}%`;
-  if (ui.boot.text) ui.boot.text.textContent = `${pct}%`;
-  if (ui.boot.file) ui.boot.file.textContent = file ? `Loading: ${file}` : "—";
+  const bootBar = $("bootBar");
+  const bootText = $("bootText");
+  const bootFile = $("bootFile");
+  if (bootBar) bootBar.style.width = `${pct}%`;
+  if (bootText) bootText.textContent = `${pct}%`;
+  if (bootFile) bootFile.textContent = file ?? "—";
 }
 
-export function showBootWarn(ui, text){
-  if (!ui.boot.warn) return;
-  ui.boot.warn.style.display = "block";
-  ui.boot.warn.textContent = text;
+export function setBootSub(text){
+  const el = $("bootSub");
+  if (el) el.textContent = text;
 }
 
-export function setHUD(ui, state){
-  if (ui.hud.level) ui.hud.level.textContent = `Level: ${state.level}`;
-  if (ui.hud.coins) ui.hud.coins.textContent = `Coins: ${state.coins}`;
-  if (ui.hud.dash) ui.hud.dash.textContent = `Dash: ${state.dashUnlocked ? "Ready" : "Locked"}`;
-  if (ui.hud.speed) ui.hud.speed.textContent = `Speed: ${state.speedTier === 0 ? "Normal" : `Boost ${state.speedTier}`}`;
-  if (ui.hud.hp) ui.hud.hp.textContent = `HP: ${state.hp}/${state.maxHP}`;
+export function showBootWarn(text){
+  const el = $("bootWarn");
+  if (!el) return;
+  el.style.display = "block";
+  el.textContent = text;
 }
 
-export function buildCharSelect(ui, assets, onPick){
+export function updateHUD(state){
+  $("hudLevel").textContent = `Level: ${state.level}`;
+  $("hudCoins").textContent = `Coins: ${state.coinsTotal}`;
+  $("hudDash").textContent = `Dash: ${state.player.dashUnlocked ? "Ready" : "Locked"}`;
+  $("hudSpeed").textContent = `Speed: Normal`;
+  $("hudThrow").textContent = `Throw: ${state.player.throwCd > 0 ? "Cooldown" : "Ready"}`;
+  $("hudHP").textContent = `HP: ${state.player.hp}/${state.player.maxHP}`;
+}
+
+export function buildCharSelect(assets, onPick){
+  const grid = $("charGrid");
+  const startBtn = $("charStartBtn");
+  grid.innerHTML = "";
+
   const chars = [
-    { key:"nate",  label:"Nate" },
+    { key:"nate",  label:"Nate"  },
     { key:"kevin", label:"Kevin" },
     { key:"scott", label:"Scott" },
     { key:"gilly", label:"Gilly" },
     { key:"edgar", label:"Edgar" },
   ];
 
-  ui.chars.grid.innerHTML = "";
-  ui.chars.startBtn.disabled = true;
-
-  let picked = null;
+  let selected = null;
 
   for (const c of chars){
     const btn = document.createElement("div");
     btn.className = "charBtn";
+    btn.dataset.key = c.key;
 
     const img = document.createElement("img");
-    img.src = assets[c.key]?.src || "";
+    img.src = assets[c.key]?.src ?? "";
     img.alt = c.label;
 
     const meta = document.createElement("div");
-    meta.innerHTML =
-      `<div style="font-family:'Press Start 2P', monospace; font-size:11px;">${c.label}</div>
-       <div class="desc">Pick your fighter.</div>`;
+    meta.innerHTML = `<div style="font-family:'Press Start 2P', monospace; font-size:11px;">${c.label}</div>
+                      <div class="cardSub" style="margin:6px 0 0;">Pick your fighter.</div>`;
 
     btn.appendChild(img);
     btn.appendChild(meta);
 
     btn.addEventListener("click", () => {
-      picked = c.key;
-      for (const el of ui.chars.grid.querySelectorAll(".charBtn")) el.classList.remove("active");
+      selected = c.key;
+      for (const el of grid.querySelectorAll(".charBtn")) el.classList.remove("active");
       btn.classList.add("active");
-      ui.chars.startBtn.disabled = false;
+      startBtn.disabled = false;
     });
 
-    ui.chars.grid.appendChild(btn);
+    grid.appendChild(btn);
   }
 
-  ui.chars.startBtn.onclick = () => {
-    if (!picked) return;
-    onPick(picked);
-  };
+  startBtn.disabled = true;
+  startBtn.onclick = () => onPick(selected);
 }
 
-export function showShop(ui, runState, onBuy, onContinue){
-  ui.shop.coins.textContent = `Coins: ${runState.coins}`;
+export function openShop(state, onBuy, onClose){
+  const items = $("shopItems");
+  items.innerHTML = "";
 
-  const items = [
+  const list = [
     {
-      id: "dash",
-      name: "DASH UNLOCK",
-      cost: 20,
-      desc: "Unlock dash (Shift).",
-      canBuy: () => !runState.dashUnlocked
-    },
-    {
-      id: "speed",
-      name: "SPEED BOOST",
+      id:"dash",
+      name:"Dash Unlock",
+      desc:"Unlock dash (Shift).",
       cost: 15,
-      desc: "Faster movement (stacks up to 3).",
-      canBuy: () => runState.speedTier < 3
+      canBuy: () => !state.player.dashUnlocked
     },
     {
-      id: "hp",
-      name: "MAX HP +1",
-      cost: 25,
-      desc: "Increase max HP (up to +5).",
-      canBuy: () => runState.maxHP < runState.baseHP + 5
+      id:"hp",
+      name:"+2 Max HP",
+      desc:"Increase max HP by 2.",
+      cost: 12,
+      canBuy: () => state.player.maxHP < 16
     }
   ];
 
-  ui.shop.list.innerHTML = "";
-  for (const it of items){
-    const row = document.createElement("div");
-    row.className = "shopItem";
+  for (const it of list){
+    const wrap = document.createElement("div");
+    wrap.className = "shopItem";
 
-    const left = document.createElement("div");
-    left.innerHTML = `<b>${it.name}</b><div class="desc">${it.desc}</div>`;
+    wrap.innerHTML = `
+      <div class="name">${it.name}</div>
+      <div class="desc">${it.desc}</div>
+      <div class="buyRow">
+        <div class="cost">${it.cost} coins</div>
+        <button class="btn" style="width:auto; padding:10px 12px;">BUY</button>
+      </div>
+    `;
 
-    const right = document.createElement("div");
-    right.className = "right";
+    const btn = wrap.querySelector("button");
+    const ok = it.canBuy();
 
-    const cost = document.createElement("div");
-    cost.className = "cost";
-    cost.textContent = `${it.cost} coins`;
+    btn.disabled = !ok || state.coinsTotal < it.cost;
+    btn.onclick = () => onBuy(it);
 
-    const btn = document.createElement("button");
-    btn.className = "btn";
-    btn.style.width = "auto";
-    btn.textContent = "BUY";
-
-    const enabled = it.canBuy() && runState.coins >= it.cost;
-    btn.disabled = !enabled;
-
-    btn.onclick = () => {
-      onBuy(it.id, it.cost);
-      showShop(ui, runState, onBuy, onContinue); // refresh
-    };
-
-    right.appendChild(cost);
-    right.appendChild(btn);
-
-    row.appendChild(left);
-    row.appendChild(right);
-    ui.shop.list.appendChild(row);
+    items.appendChild(wrap);
   }
 
-  ui.shop.contBtn.onclick = onContinue;
-}
-
-export function showStageComplete(ui, stats, onContinue){
-  ui.stage.stats.innerHTML =
-    `Coins collected: <b>${stats.stageCoins}</b><br/>` +
-    `Damage taken: <b>${stats.damageTaken}</b><br/>` +
-    `Time: <b>${stats.time.toFixed(1)}s</b><br/>` +
-    `Total coins: <b>${stats.totalCoins}</b>`;
-  ui.stage.contBtn.onclick = onContinue;
+  $("shopCloseBtn").onclick = onClose;
 }
