@@ -1,60 +1,50 @@
-// js/config.js
-// NOTE: This file MUST be valid JavaScript (not CSS). If you see anything starting with "."
-// (like ".panel { ... }"), that will crash the whole game.
+export const CONFIG = {
+  ASSET_BASE: "./assets/",
+  CACHE_BUST: "v2025-12-31a",
 
-export const CONFIG = Object.freeze({
-  // Canvas
   CANVAS_W: 960,
   CANVAS_H: 540,
 
-  // Physics
-  GRAVITY: 2400,
-  MAX_FALL: 1800,
+  GRAVITY: 1900,
+  MOVE_ACCEL: 5200,
+  MOVE_MAX: 320,
+  GROUND_FRICTION: 4200,
+  AIR_FRICTION: 900,
 
-  // Player tuning
-  PLAYER: {
-    W: 28,
-    H: 40,
-    SPEED: 240,
-    ACCEL: 2400,
-    FRICTION: 1800,
-    JUMP_VY: -720,
-    COYOTE_TIME: 0.10,     // seconds
-    JUMP_BUFFER: 0.10,     // seconds
-    VARIABLE_JUMP_CUT: 0.45, // releasing jump early reduces upward velocity
-  },
+  JUMP_V: 720,
+  COYOTE_TIME: 0.10,
+  JUMP_BUFFER: 0.10,
+  JUMP_CUT: 0.55, // early release reduces jump height
 
-  // World generation
-  WORLD: {
-    PLATFORM_H: 22,
-    MIN_GAP_X: 70,
-    MAX_GAP_X: 150,
-    MIN_STEP_Y: 30,
-    MAX_STEP_Y: 120,
-  },
+  DASH_SPEED: 780,
+  DASH_TIME: 0.14,
+  DASH_COOLDOWN: 0.45,
 
-  // Enemy tuning (baseline)
-  ENEMY: {
-    CONTACT_DMG: 1,
-    VISION_X: 360,
-    VISION_Y: 120,
-  },
+  PLAYER_W: 26,
+  PLAYER_H: 40,
 
-  // Hazard tuning
-  SPIKES: {
-    DMG: 2,
-    KNOCKBACK_X: 260,
-    KNOCKBACK_Y: -420,
-    INVULN: 0.35, // seconds
-  },
+  PLATFORM_H: 36,
 
-  // Shop limits (you can adjust later)
-  SHOP: {
-    MAX_HP_BUYS: 5,
-  },
-});
+  // Level gen safety: keep gaps reachable
+  MAX_GAP: 170,       // horizontal gap between platform edges
+  MAX_RISE: 110,      // max upward step between platforms
+  MIN_PLATFORM_W: 160,
+  MAX_PLATFORM_W: 320,
 
-// Support both import styles:
-// import { CONFIG } from "./config.js"
-// import CONFIG from "./config.js"
-export default CONFIG;
+  SPIKE_W: 48,
+  SPIKE_H: 32,
+  SPIKE_DAMAGE: 1,
+
+  ENEMY_W: 30,
+  ENEMY_H: 30,
+  ENEMY_SPEED: 120,
+  ENEMY_CHASE_SPEED: 165,
+  ENEMY_DETECT_X: 250,
+  ENEMY_DAMAGE: 1,
+
+  BOSS_EVERY: 5,
+  BOSS_HP_BASE: 12,
+
+  START_HP: 10,
+  MAX_HP_CAP: 15
+};
