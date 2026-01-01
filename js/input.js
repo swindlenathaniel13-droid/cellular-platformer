@@ -1,28 +1,44 @@
-export function createInput(){
-  const keys = new Set();
+// js/input.js
+export function createInput(target = window){
+  const down = new Set();
   const pressed = new Set();
   const released = new Set();
 
-  function down(e){
-    if (!keys.has(e.code)) pressed.add(e.code);
-    keys.add(e.code);
+  function keyDown(e){
+    const code = e.code;
+    if (!down.has(code) && !e.repeat) pressed.add(code);
+    down.add(code);
   }
-  function up(e){
-    keys.delete(e.code);
-    released.add(e.code);
+  function keyUp(e){
+    const code = e.code;
+    down.delete(code);
+    released.add(code);
   }
 
-  window.addEventListener("keydown", (e) => {
-    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space"].includes(e.code)) e.preventDefault();
-    down(e);
-  }, { passive:false });
-
-  window.addEventListener("keyup", up);
+  target.addEventListener("keydown", keyDown);
+  target.addEventListener("keyup", keyUp);
 
   return {
-    isDown: (code) => keys.has(code),
-    wasPressed: (code) => pressed.has(code),
-    wasReleased: (code) => released.has(code),
-    tick: () => { pressed.clear(); released.clear(); }
+    down: (code) => down.has(code),
+    pressed: (code) => pressed.has(code),
+    released: (code) => released.has(code),
+    tick: () => { pressed.clear(); released.clear(); },
+    destroy: () => {
+      target.removeEventListener("keydown", keyDown);
+      target.removeEventListener("keyup", keyUp);
+    }
   };
 }
+
+export const KEYS = {
+  left: ["ArrowLeft","KeyA"],
+  right: ["ArrowRight","KeyD"],
+  jump: ["Space"],
+  throw: ["KeyF"],
+  dash: ["ShiftLeft","ShiftRight"],
+  pause: ["Escape"]
+};
+
+export function anyDown(input, arr){ return arr.some(k => input.down(k)); }
+export function anyPressed(input, arr){ return arr.some(k => input.pressed(k)); }
+export function anyReleased(input, arr){ return arr.some(k => input.released(k)); }
