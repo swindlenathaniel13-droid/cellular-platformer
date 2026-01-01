@@ -1,168 +1,108 @@
 import { CONFIG } from "./config.js";
-import { clamp, rand, aabb } from "./utils.js";
-import { takeDamage } from "./player.js";
+import { rectsOverlap, clamp } from "./utils.js";
+import { moveAndCollide } from "./physics.js";
 
-export function spawnEnemiesForLevel(level, world){
-  const enemies = [];
-
-  const baseCount = 2 + Math.min(5, Math.floor(level/2));
-  for(let i=0;i<baseCount;i++){
-    const plat = pickRandomPlatform(world);
-    if(!plat) continue;
-
-    const type = (Math.random() < 0.55) ? "enemy1" : "enemy2";
-    enemies.push(makeEnemy(type, plat.x + rand(20, plat.w-60), plat.y - CONFIG.ENEMY_H, false));
-  }
-
-  // Boss every 5 levels
-  if(level % 5 === 0){
-    const bx = world.door.x - 220;
-    const by = world.floorY - (CONFIG.ENEMY_H * CONFIG.BOSS_SCALE);
-    enemies.push(makeEnemy("enemy2", bx, by, true));
-  }
-
-  return enemies;
-}
-
-function pickRandomPlatform(world){
-  const plats = world.solids.filter(s => s.kind === "plat" || s.kind === "floor" || s.kind === "move");
-  if(!plats.length) return null;
-  return plats[Math.floor(Math.random()*plats.length)];
-}
-
-function makeEnemy(type, x, y, boss){
-  const scale = boss ? CONFIG.BOSS_SCALE : 1.0;
+export function createEnemy(x, y, kind="enemy1"){
   return {
-    kind: "enemy",
-    type,
-    boss,
     x, y,
-    w: CONFIG.ENEMY_W * scale,
-    h: CONFIG.ENEMY_H * scale,
-    vx: (Math.random()<0.5?-1:1) * CONFIG.ENEMY_SPEED,
-    vy: 0,
+    w: CONFIG.ENEMY_W,
+    h: CONFIG.ENEMY_H,
+    vx: 0, vy: 0,
     onGround: false,
-    facing: 1,
-    hp: boss ? CONFIG.BOSS_HP : (type==="enemy2" ? 4 : 3),
-
-    state: "PATROL", // PATROL, CHASE, IDLE
-    stateT: rand(0.6, 1.6),
-    lastDropT: 0,
-
-    shootCd: rand(0.6, 1.2), // enemy2 uses
-    animT: 0,
-    hurtT: 0,
+    facing: Math.random() < 0.5 ? -1 : 1,
+    kind,
+    hp: kind === "boss" ? CONFIG.BOSS_HP_BASE : 2,
+    patrolMinX: x - 180,
+    patrolMaxX: x + 180,
+    hurtCD: 0
   };
 }
 
-export function updateEnemies(enemies, player, world, projectiles, dt){
-  for(const e of enemies){
-    e.animT += dt;
-    if (e.hurtT > 0) e.hurtT -= dt;
-    e.lastDropT = Math.max(0, e.lastDropT - dt);
-    e.shootCd = Math.max(0, e.shootCd - dt);
+export function spawnEnemiesForLevel(world, level){
+  world.enemies = [];
 
-    // decide state
+  const count = Math.min(2 + Math.floor(level * 0.6), 8);
+  for (let i=0;i<count;i++){
+    const p = world.platforms[(Math.random()*world.platforms.length)|0];
+    if (!p) continue;
+    const ex = p.x + 40 + Math.random() * Math.max(20, p.w - 80);
+    const ey = p.y - CONFIG.ENEMY_H;
+    if (ex < 200 || ex > world.width - 250) continue;
+    world.enemies.push(createEnemy(ex, ey, Math.random()<0.25 ? "enemy2" : "enemy1"));
+  }
+
+  if (level % CONFIG.BOSS_EVERY === 0){
+    // Boss near exit platform
+    const ep = world.exitPlatform;
+    const bx = ep.x + ep.w * 0.55;
+    const by = ep.y - (CONFIG.ENEMY_H * 2);
+    const b = createEnemy(bx, by, "boss");
+    b.w = CONFIG.ENEMY_W * 2;
+    b.h = CONFIG.ENEMY_H * 2;
+    b.hp = CONFIG.BOSS_HP_BASE + Math.floor(level * 0.8);
+    b.patrolMinX = ep.x + 40;
+    b.patrolMaxX = ep.x + ep.w - 40;
+    world.enemies.push(b);
+    world.bossAlive = true;
+  } else {
+    world.bossAlive = false;
+  }
+}
+
+export function updateEnemies(world, player, dt, onPlayerDamage){
+  const solids = world.platforms;
+  for (const e of world.enemies){
+    e.hurtCD = Math.max(0, e.hurtCD - dt);
+    e.vy += CONFIG.GRAVITY * dt;
+
     const dx = (player.x + player.w/2) - (e.x + e.w/2);
-    const dy = (player.y + player.h/2) - (e.y + e.h/2);
     const adx = Math.abs(dx);
 
-    if (adx < CONFIG.ENEMY_AGGRO_X && Math.abs(dy) < 260){
-      // chase only if reasonably close vertically, or boss always chases
-      e.state = "CHASE";
-      e.stateT = rand(0.5, 1.2);
+    // Smart-ish: chase if close, else patrol
+    const detect = adx < CONFIG.ENEMY_DETECT_X && Math.abs((player.y+player.h/2)-(e.y+e.h/2)) < 140;
+    const speed = detect ? (e.kind==="boss" ? CONFIG.ENEMY_CHASE_SPEED*0.9 : CONFIG.ENEMY_CHASE_SPEED) : CONFIG.ENEMY_SPEED;
+
+    if (detect){
+      e.facing = dx < 0 ? -1 : 1;
+      e.vx = e.facing * speed;
     } else {
-      e.stateT -= dt;
-      if(e.stateT <= 0){
-        e.state = (Math.random() < 0.35) ? "IDLE" : "PATROL";
-        e.stateT = rand(0.8, 1.8);
-      }
+      // patrol between min/max
+      e.vx = e.facing * speed;
+      if (e.x < e.patrolMinX) e.facing = 1;
+      if (e.x > e.patrolMaxX) e.facing = -1;
     }
 
-    if(e.state === "IDLE"){
-      e.vx *= 0.85;
-      if (Math.abs(e.vx) < 8) e.vx = 0;
-    }
+    e.vx = clamp(e.vx, -280, 280);
 
-    if(e.state === "PATROL"){
-      if (Math.abs(e.vx) < 10) e.vx = (Math.random()<0.5?-1:1) * CONFIG.ENEMY_SPEED;
-      e.facing = e.vx >= 0 ? 1 : -1;
-    }
+    moveAndCollide(e, solids, dt);
 
-    if(e.state === "CHASE"){
-      const dir = dx === 0 ? 0 : (dx > 0 ? 1 : -1);
-      e.facing = dir || e.facing;
+    // Edge "hysteresis": if near the edge of any platform, flip
+    if (e.onGround){
+      const feetX = e.facing === 1 ? (e.x + e.w + 2) : (e.x - 2);
+      const feetY = e.y + e.h + 2;
 
-      // stay “smarter”: chase on-platform primarily
-      const speed = e.boss ? (CONFIG.ENEMY_CHASE_SPEED*1.15) : CONFIG.ENEMY_CHASE_SPEED;
-      e.vx = dir * speed;
-
-      // only drop down if player is below AND near an edge AND cooldown ready
-      if (dy > 70 && e.onGround && adx < CONFIG.ENEMY_DROP_X && e.lastDropT <= 0){
-        if (isNearEdge(e, world)){
-          e.vy = 260; // step-off encouragement
-          e.lastDropT = 1.25;
+      let supported = false;
+      for (const p of solids){
+        if (feetX >= p.x && feetX <= p.x + p.w && feetY >= p.y && feetY <= p.y + p.h + 6){
+          supported = true;
+          break;
         }
       }
-
-      // ranged shot for enemy2 / boss
-      if (e.type === "enemy2" && adx > 120 && adx < 520 && Math.abs(dy) < 120 && e.shootCd <= 0){
-        e.shootCd = e.boss ? 0.55 : 0.95;
-        const px = e.facing > 0 ? (e.x + e.w + 4) : (e.x - 10);
-        const py = e.y + e.h*0.45;
-        projectiles.push({
-          kind:"enemyShot",
-          x:px, y:py, w:10, h:6,
-          vx: e.facing * (e.boss ? 520 : 420),
-          vy: 0,
-          life: 2.0,
-        });
+      if (!supported){
+        e.facing *= -1;
+        e.vx = e.facing * speed;
       }
     }
 
-    // gravity
-    e.vy = clamp(e.vy + 2100*dt, -99999, 1600);
-  }
-}
-
-function isNearEdge(e, world){
-  // detect if there is ground right under center +/- a little
-  const footY = e.y + e.h + 2;
-  const leftX = e.x + e.w*0.25;
-  const rightX = e.x + e.w*0.75;
-
-  const underL = hasSolidUnder(leftX, footY, world);
-  const underR = hasSolidUnder(rightX, footY, world);
-
-  // near edge if one side lacks ground
-  return (underL && !underR) || (!underL && underR);
-}
-
-function hasSolidUnder(x, y, world){
-  for(const s of world.solids){
-    if(!s.solid) continue;
-    if (x >= s.x && x <= s.x+s.w && y >= s.y && y <= s.y+s.h+4) return true;
-  }
-  return false;
-}
-
-export function handleEnemyPlayerCollisions(enemies, player){
-  const pBox = { x:player.x, y:player.y, w:player.w, h:player.h };
-  for(const e of enemies){
-    if(e.hp <= 0) continue;
-    if(aabb(pBox, e)){
-      // stomp?
-      const falling = player.vy > 220 && (player.y + player.h) <= (e.y + e.h*0.45);
-      if(falling){
-        e.hp -= 1;
-        e.hurtT = 0.25;
-        player.vy = -520;
-      } else {
-        takeDamage(player, 1);
-        // knockback
-        player.vx = (player.x < e.x ? -1 : 1) * 260;
-        player.vy = -260;
-      }
+    // Damage player on contact (with cooldown)
+    if (rectsOverlap(e, player) && e.hurtCD <= 0){
+      e.hurtCD = 0.45;
+      onPlayerDamage?.(CONFIG.ENEMY_DAMAGE);
+      player.vx += (dx < 0 ? -180 : 180);
+      player.vy = -220;
     }
   }
+
+  // Boss alive flag
+  world.bossAlive = world.enemies.some(e => e.kind === "boss" && e.hp > 0);
 }
