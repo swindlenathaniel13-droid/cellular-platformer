@@ -1,108 +1,147 @@
+// js/player.js
 import { CONFIG } from "./config.js";
 import { clamp } from "./utils.js";
-import { moveAndCollide } from "./physics.js";
+import { anyDown, anyPressed, anyReleased, KEYS } from "./input.js";
 
 export function createPlayer(x, y, charKey){
   return {
     x, y,
-    w: CONFIG.PLAYER_W,
-    h: CONFIG.PLAYER_H,
-    vx: 0, vy: 0,
+    w: CONFIG.player.w,
+    h: CONFIG.player.h,
+    vx: 0,
+    vy: 0,
     onGround: false,
     facing: 1,
 
-    hp: CONFIG.START_HP,
-    maxHP: CONFIG.START_HP,
+    hp: CONFIG.player.maxHP,
+    maxHP: CONFIG.player.maxHP,
+    inv: 0,
 
     coyote: 0,
     jumpBuf: 0,
 
-    dashUnlocked: false,
-    dashTime: 0,
-    dashCD: 0,
+    dashUnlocked: CONFIG.player.dashUnlocked,
+    dashT: 0,
+    dashCd: 0,
 
-    speedMult: 1.0,
+    throwCd: 0,
+    projectiles: [],
 
     charKey
   };
 }
 
-export function updatePlayer(p, input, solids, hazards, dt, onDamage){
-  // Timers
-  p.coyote = p.onGround ? CONFIG.COYOTE_TIME : Math.max(0, p.coyote - dt);
-  p.jumpBuf = Math.max(0, p.jumpBuf - dt);
-  p.dashCD = Math.max(0, p.dashCD - dt);
-  p.dashTime = Math.max(0, p.dashTime - dt);
+export function snapshotRunState(player, coinsTotal){
+  return {
+    coinsTotal,
+    maxHP: player.maxHP,
+    dashUnlocked: player.dashUnlocked
+  };
+}
 
-  const left = input.isDown("ArrowLeft") || input.isDown("KeyA");
-  const right = input.isDown("ArrowRight") || input.isDown("KeyD");
-  const wantJump = input.wasPressed("Space");
-  const jumpUp = input.wasReleased("Space");
-  const wantDash = input.wasPressed("ShiftLeft") || input.wasPressed("ShiftRight");
+export function restoreRunState(player, snap){
+  player.maxHP = snap.maxHP;
+  player.dashUnlocked = snap.dashUnlocked;
+  player.hp = player.maxHP;
+}
 
-  if (wantJump) p.jumpBuf = CONFIG.JUMP_BUFFER;
+export function updatePlayer(player, input, dt){
+  // timers
+  player.inv = Math.max(0, player.inv - dt);
+  player.coyote = player.onGround ? CONFIG.player.coyote : Math.max(0, player.coyote - dt);
+  player.jumpBuf = Math.max(0, player.jumpBuf - dt);
+  player.dashCd = Math.max(0, player.dashCd - dt);
+  player.throwCd = Math.max(0, player.throwCd - dt);
 
-  // Facing
-  if (left) p.facing = -1;
-  if (right) p.facing = 1;
+  if (anyPressed(input, KEYS.jump)) player.jumpBuf = CONFIG.player.jumpBuffer;
+
+  const left = anyDown(input, KEYS.left);
+  const right = anyDown(input, KEYS.right);
+
+  let dir = 0;
+  if (left) dir -= 1;
+  if (right) dir += 1;
+
+  if (dir !== 0) player.facing = dir;
 
   // Dash
-  if (p.dashUnlocked && wantDash && p.dashCD <= 0 && p.dashTime <= 0){
-    p.dashTime = CONFIG.DASH_TIME;
-    p.dashCD = CONFIG.DASH_COOLDOWN;
-    p.vy *= 0.15; // keep it snappy
+  if (player.dashUnlocked && player.dashT <= 0 && player.dashCd <= 0 && anyPressed(input, KEYS.dash)){
+    player.dashT = CONFIG.player.dashTime;
+    player.dashCd = CONFIG.player.dashCooldown;
+    player.vy = 0;
   }
 
-  const accel = CONFIG.MOVE_ACCEL * p.speedMult;
-  const max = CONFIG.MOVE_MAX * p.speedMult;
-
-  // Horizontal control
-  if (p.dashTime > 0){
-    p.vx = p.facing * CONFIG.DASH_SPEED;
-  } else {
-    if (left && !right) p.vx -= accel * dt;
-    else if (right && !left) p.vx += accel * dt;
-    else {
-      // friction
-      const fr = (p.onGround ? CONFIG.GROUND_FRICTION : CONFIG.AIR_FRICTION) * dt;
-      if (p.vx > 0) p.vx = Math.max(0, p.vx - fr);
-      else if (p.vx < 0) p.vx = Math.min(0, p.vx + fr);
-    }
-    p.vx = clamp(p.vx, -max, max);
+  if (player.dashT > 0){
+    player.dashT -= dt;
+    player.vx = player.facing * CONFIG.player.dashSpeed;
+    return; // skip normal movement while dashing
   }
 
-  // Gravity
-  p.vy += CONFIG.GRAVITY * dt;
+  // Horizontal movement
+  const target = dir * CONFIG.player.runSpeed;
+  const accel = (Math.abs(target) > Math.abs(player.vx)) ? CONFIG.player.accel : CONFIG.player.decel;
+  player.vx = moveToward(player.vx, target, accel * dt);
 
-  // Jump (buffer + coyote)
-  if (p.jumpBuf > 0 && (p.onGround || p.coyote > 0)){
-    p.jumpBuf = 0;
-    p.vy = -CONFIG.JUMP_V;
-    p.onGround = false;
-    p.coyote = 0;
+  // Jump if buffered + coyote
+  if (player.jumpBuf > 0 && player.coyote > 0){
+    player.vy = -CONFIG.player.jumpV;
+    player.jumpBuf = 0;
+    player.coyote = 0;
   }
 
-  // Variable jump height
-  if (jumpUp && p.vy < 0){
-    p.vy *= CONFIG.JUMP_CUT;
+  // Variable jump height (release early)
+  if (anyReleased(input, KEYS.jump) && player.vy < 0){
+    player.vy *= CONFIG.player.jumpCut;
   }
 
-  // Move + collide
-  moveAndCollide(p, solids, dt);
+  // gravity applied in main after collisions
+}
 
-  // Hazard damage
-  for (const h of hazards){
-    if (
-      p.x < h.x + h.w &&
-      p.x + p.w > h.x &&
-      p.y < h.y + h.h &&
-      p.y + p.h > h.y
-    ){
-      onDamage?.(h.damage ?? 1);
-      // knockback
-      p.vy = Math.min(p.vy, 240);
-      p.vx += (p.x + p.w/2 < h.x + h.w/2 ? -120 : 120);
-      break;
-    }
+export function applyGravity(player, dt){
+  player.vy = clamp(player.vy + CONFIG.physics.gravity * dt, -9999, CONFIG.physics.maxFall);
+}
+
+export function tryThrow(player, input){
+  if (!anyPressed(input, KEYS.throw)) return null;
+  if (player.throwCd > 0) return null;
+
+  player.throwCd = CONFIG.player.throwCooldown;
+
+  const p = {
+    x: player.x + player.w*0.5 + player.facing * 14,
+    y: player.y + player.h*0.45,
+    w: 14,
+    h: 14,
+    vx: player.facing * CONFIG.combat.projSpeed,
+    vy: 0,
+    life: CONFIG.combat.projLife,
+    dmg: CONFIG.combat.projDamage
+  };
+
+  player.projectiles.push(p);
+  return p;
+}
+
+export function updateProjectiles(player, dt){
+  const arr = player.projectiles;
+  for (const p of arr){
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
   }
+  player.projectiles = arr.filter(p => p.life > 0);
+}
+
+export function hurtPlayer(player, dmg, knockX = 0){
+  if (player.inv > 0) return false;
+  player.hp = Math.max(0, player.hp - dmg);
+  player.inv = CONFIG.player.invulnTime;
+  player.vx += knockX;
+  return true;
+}
+
+function moveToward(v, target, maxDelta){
+  if (v < target) return Math.min(target, v + maxDelta);
+  if (v > target) return Math.max(target, v - maxDelta);
+  return target;
 }
