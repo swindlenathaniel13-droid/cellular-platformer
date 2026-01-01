@@ -1,206 +1,317 @@
-// /js/main.js
-window.__BOOT_JS_OK = true;
-
 import { CONFIG } from "./config.js";
-import { loadAssets, FILES } from "./assets.js";
+import { loadAssets } from "./assets.js";
 import { createInput } from "./input.js";
-import { buildLevel } from "./world.js";
+import { nowSec } from "./utils.js";
+import { createUI, setBootProgress, showBootWarn, setHUD, buildCharSelect, showShop, showStageComplete } from "./ui.js";
+import { createWorld, collectCoins, touchCheckpoint, touchExit } from "./world.js";
 import { createPlayer, updatePlayer } from "./player.js";
-import { render } from "./render.js";
+import { spawnEnemiesForLevel, updateEnemies } from "./enemies.js";
+import { renderGame } from "./render.js";
 
-const $ = (id) => document.getElementById(id);
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
-// Canvas
-const canvas = $("game");
-const ctx = canvas?.getContext("2d");
-if (ctx) ctx.imageSmoothingEnabled = false;
-
-// Boot UI (null-safe)
-const bootOverlay = $("bootOverlay");
-const bootBar = $("bootBar");
-const bootText = $("bootText");
-const bootSub = $("bootSub");
-const bootFile = $("bootFile");
-const bootWarn = $("bootWarn");
-const bootStartBtn = $("bootStartBtn");
-
-// Character select
-const charOverlay = $("charOverlay");
-const charGrid = $("charGrid");
-const charStartBtn = $("charStartBtn");
-
-// Pause
-const pauseOverlay = $("pauseOverlay");
-const resumeBtn = $("resumeBtn");
-
-// HUD
-const hudLevel = $("hudLevel");
-const hudCoins = $("hudCoins");
-const hudHP = $("hudHP");
-
-function show(el){ el?.classList.add("overlay--show"); }
-function hide(el){ el?.classList.remove("overlay--show"); }
-
-function warn(text){
-  if (!bootWarn) return;
-  bootWarn.style.display = "block";
-  bootWarn.textContent = text;
-}
-
-function setProgress(done, total){
-  const pct = total ? Math.round((done/total)*100) : 0;
-  if (bootBar) bootBar.style.width = `${pct}%`;
-  if (bootText) bootText.textContent = `${pct}%`;
-}
-
-function fatal(msg, err){
-  console.error(msg, err);
-  if (bootSub) bootSub.textContent = "Boot failed (see message below)";
-  warn(msg + (err ? "\n\n" + String(err) : ""));
-}
-
+const ui = createUI();
 const input = createInput();
 
 let assets = null;
-let world = null;
-let player = null;
-let camX = 0;
 
-const game = {
-  level: 1,
-  totalCoins: 0,
-  selectedCharKey: null,
+let paused = false;
+let gameStarted = false;
+
+let run = null;     // persistent across levels (unless death/restart)
+let stage = null;   // per-level
+
+function newRun(){
+  return {
+    level: 1,
+    coins: 0,
+    baseHP: CONFIG.START_HP,
+    maxHP: CONFIG.START_HP,
+    dashUnlocked: false,
+    speedTier: 0
+  };
+}
+
+function newStage(level, charKey){
+  const world = createWorld(level);
+  spawnEnemiesForLevel(world, level);
+
+  const player = createPlayer(60, 380, charKey);
+  player.maxHP = run.maxHP;
+  player.hp = run.maxHP;
+  player.dashUnlocked = run.dashUnlocked;
+  player.speedMult = 1.0 + run.speedTier * 0.08;
+
+  return {
+    world,
+    player,
+    cam: { x: 0, y: 0 },
+    stageCoins: 0,
+    damageTaken: 0,
+    startTime: nowSec(),
+    finished: false,
+    inShop: false
+  };
+}
+
+function setCamera(){
+  // Follow player with clamping
+  const targetX = stage.player.x - CONFIG.CANVAS_W * 0.35;
+  stage.cam.x = Math.max(0, Math.min(stage.world.width - CONFIG.CANVAS_W, targetX));
+  stage.cam.y = 0;
+}
+
+function applyHUD(){
+  setHUD(ui, {
+    level: run.level,
+    coins: run.coins,
+    dashUnlocked: run.dashUnlocked,
+    speedTier: run.speedTier,
+    hp: stage.player.hp,
+    maxHP: stage.player.maxHP
+  });
+}
+
+function openShop(){
+  stage.inShop = true;
+  ui.show(ui.shop.overlay);
+
+  showShop(
+    ui,
+    run,
+    (id, cost) => {
+      if (run.coins < cost) return;
+      if (id === "dash" && !run.dashUnlocked){
+        run.coins -= cost;
+        run.dashUnlocked = true;
+      }
+      if (id === "speed" && run.speedTier < 3){
+        run.coins -= cost;
+        run.speedTier += 1;
+      }
+      if (id === "hp" && run.maxHP < run.baseHP + 5){
+        run.coins -= cost;
+        run.maxHP += 1;
+      }
+      // reflect upgrades on player for next stage only
+      applyHUD();
+    },
+    () => {
+      ui.hide(ui.shop.overlay);
+      stage.inShop = false;
+      stageComplete();
+    }
+  );
+}
+
+function stageComplete(){
+  stage.finished = true;
+
+  const t = nowSec() - stage.startTime;
+  const stats = {
+    stageCoins: stage.stageCoins,
+    damageTaken: stage.damageTaken,
+    time: t,
+    totalCoins: run.coins
+  };
+
+  ui.show(ui.stage.overlay);
+  showStageComplete(ui, stats, () => {
+    ui.hide(ui.stage.overlay);
+    nextLevel();
+  });
+}
+
+function nextLevel(){
+  // next level, keep run coins + upgrades
+  run.level += 1;
+
+  ui.show(ui.boot.overlay);
+  if (ui.boot.sub) ui.boot.sub.textContent = "Loading next stage…";
+  if (ui.boot.startBtn) ui.boot.startBtn.disabled = true;
+
+  // quick fake loader (arcade vibe)
+  let fake = 0;
+  const tick = () => {
+    fake += 1;
+    setBootProgress(ui, fake, 20, "Building level…");
+    if (fake < 20) requestAnimationFrame(tick);
+    else {
+      ui.hide(ui.boot.overlay);
+      stage = newStage(run.level, stage.player.charKey);
+      applyHUD();
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function dieAndResetRun(){
+  ui.show(ui.death.overlay);
+  ui.death.restartBtn.onclick = () => {
+    ui.hide(ui.death.overlay);
+    run = newRun();
+    stage = newStage(run.level, stage.player.charKey);
+    applyHUD();
+  };
+}
+
+function togglePause(){
+  if (!gameStarted) return;
+  paused = !paused;
+  if (paused) ui.show(ui.pause.overlay);
+  else ui.hide(ui.pause.overlay);
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape"){
+    e.preventDefault();
+    togglePause();
+  }
+});
+
+ui.pause.resumeBtn.onclick = () => togglePause();
+ui.pause.restartRunBtn.onclick = () => {
+  // Reset EVERYTHING (coins + upgrades), per your request
+  ui.hide(ui.pause.overlay);
+  paused = false;
+  run = newRun();
+  stage = newStage(run.level, stage.player.charKey);
+  applyHUD();
 };
 
-function buildCharSelect(){
-  if (!charGrid || !charStartBtn) return;
+async function boot(){
+  ui.show(ui.boot.overlay);
+  if (ui.boot.sub) ui.boot.sub.textContent = "Loading assets…";
 
-  charGrid.innerHTML = "";
-  const chars = [
-    { key:"nate",  label:"Nate"  },
-    { key:"kevin", label:"Kevin" },
-    { key:"scott", label:"Scott" },
-    { key:"gilly", label:"Gilly" },
-    { key:"edgar", label:"Edgar" },
-  ];
+  const { assets: loaded, missing } = await loadAssets(({ done, total, file }) => {
+    setBootProgress(ui, done, total, file);
+  });
 
-  for (const c of chars){
-    const btn = document.createElement("div");
-    btn.className = "charBtn";
-    btn.dataset.key = c.key;
+  assets = loaded;
 
-    const img = document.createElement("img");
-    img.src = `./assets/${FILES[c.key]}`;
-    img.alt = c.label;
-
-    const meta = document.createElement("div");
-    meta.innerHTML = `
-      <div style="font-family:'Press Start 2P', monospace; font-size:11px;">${c.label}</div>
-      <div class="tiny" style="margin:0;color:#9bb3da;">Pick your fighter.</div>
-    `;
-
-    btn.appendChild(img);
-    btn.appendChild(meta);
-
-    btn.addEventListener("click", () => {
-      game.selectedCharKey = c.key;
-      for (const el of charGrid.querySelectorAll(".charBtn")) el.classList.remove("active");
-      btn.classList.add("active");
-      charStartBtn.disabled = false;
-    });
-
-    charGrid.appendChild(btn);
+  if (missing.length){
+    showBootWarn(ui,
+      "Some assets failed to load:\n" +
+      missing.map(m => `- ${m}`).join("\n") +
+      "\n\nFix checklist:\n" +
+      "• Folder name is exactly: assets\n" +
+      "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
+      "• Files are at /assets (not /assets/assets)\n"
+    );
   }
 
-  charStartBtn.disabled = true;
+  if (ui.boot.sub) ui.boot.sub.textContent = "Assets loaded. Press START.";
+  ui.boot.startBtn.disabled = false;
+
+  ui.boot.startBtn.onclick = () => {
+    ui.hide(ui.boot.overlay);
+    ui.show(ui.chars.overlay);
+    buildCharSelect(ui, assets, (charKey) => {
+      ui.hide(ui.chars.overlay);
+      startGame(charKey);
+    });
+  };
 }
 
-function startRun(){
-  world = buildLevel(game.level);
-  player = createPlayer(game.selectedCharKey ?? "nate");
-  camX = 0;
-  hide(charOverlay);
-  hide(bootOverlay);
+function startGame(charKey){
+  gameStarted = true;
+  run = newRun();
+  stage = newStage(run.level, charKey);
+  applyHUD();
 }
-
-bootStartBtn?.addEventListener("click", () => {
-  hide(bootOverlay);
-  show(charOverlay);
-  buildCharSelect();
-});
-
-charStartBtn?.addEventListener("click", () => {
-  startRun();
-});
-
-resumeBtn?.addEventListener("click", () => {
-  hide(pauseOverlay);
-});
 
 let last = performance.now();
+let acc = 0;
+const FIXED = 1/60;
+
 function loop(now){
-  const dt = Math.min(0.033, (now - last)/1000);
+  const dt = Math.min(0.05, (now - last)/1000);
   last = now;
+  acc += dt;
 
-  // Draw something even before run starts
-  if (!ctx){
-    return requestAnimationFrame(loop);
-  }
+  // Input tick is per-frame for pressed/released
+  // (fixed steps use same pressed data for that frame)
+  const doFrame = () => {
+    if (!gameStarted || !stage){
+      // background idle
+      ctx.clearRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+      ctx.fillStyle = "#000"; ctx.fillRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+      return;
+    }
 
-  if (assets && world && player){
-    world.stageTime += dt;
-    updatePlayer(player, input, world, dt);
+    if (paused || stage.inShop || stage.finished){
+      renderGame(ctx, assets, stage.world, stage.player, stage.cam);
+      return;
+    }
 
-    // Camera follow
-    const targetCam = Math.max(0, player.x - CONFIG.CANVAS_W*0.35);
-    camX += (targetCam - camX) * CONFIG.CAM_LERP;
+    // Fixed update steps
+    while (acc >= FIXED){
+      step(FIXED);
+      acc -= FIXED;
+    }
 
-    // HUD
-    hudLevel && (hudLevel.textContent = String(game.level));
-    hudCoins && (hudCoins.textContent = String(game.totalCoins + world.stageCoins));
-    hudHP && (hudHP.textContent = `${player.hp}/${player.hpMax}`);
+    setCamera();
+    renderGame(ctx, assets, stage.world, stage.player, stage.cam);
+  };
 
-    render(ctx, assets, world, player, camX);
-  } else {
-    ctx.clearRect(0,0,CONFIG.CANVAS_W,CONFIG.CANVAS_H);
-    ctx.fillStyle="#000";
-    ctx.fillRect(0,0,CONFIG.CANVAS_W,CONFIG.CANVAS_H);
-  }
-
-  input.endFrame();
+  doFrame();
+  input.tick();
   requestAnimationFrame(loop);
 }
 
-(async function boot(){
-  try{
-    if (bootSub) bootSub.textContent = "JS OK — Loading assets…";
-    if (bootStartBtn) bootStartBtn.disabled = true;
+function step(dt){
+  const p = stage.player;
+  const w = stage.world;
 
-    const res = await loadAssets(({file,done,total}) => {
-      if (bootFile) bootFile.textContent = `Loading: ${file}`;
-      setProgress(done, total);
-    });
-
-    assets = res.assets;
-
-    if (bootFile) bootFile.textContent = "—";
-
-    if (res.missing?.length){
-      warn(
-        "Some assets failed to load:\n" +
-        res.missing.map(m => `- ${m}`).join("\n") +
-        "\n\nFix checklist:\n" +
-        "• Folder name is exactly: assets\n" +
-        "• Filenames match EXACT case (Spike.png ≠ spike.png)\n" +
-        "• Files are at /assets (not /assets/assets)\n"
-      );
+  // Update player
+  updatePlayer(p, input, w.platforms, w.hazards, dt, (dmg) => {
+    p.hp -= dmg;
+    stage.damageTaken += dmg;
+    applyHUD();
+    if (p.hp <= 0){
+      dieAndResetRun();
     }
+  });
 
-    if (bootSub) bootSub.textContent = "Assets loaded. Press START.";
-    if (bootStartBtn) bootStartBtn.disabled = false;
-
-    requestAnimationFrame(loop);
-  } catch (e){
-    fatal("Loader crashed during boot().", e);
+  // Fall death (off map)
+  if (p.y > w.height){
+    dieAndResetRun();
+    return;
   }
-})();
+
+  // Coins
+  const got = collectCoins(w, p);
+  if (got > 0){
+    stage.stageCoins += got;
+    run.coins += got;
+    applyHUD();
+  }
+
+  // Checkpoint => unlock door ONLY
+  if (touchCheckpoint(w, p)){
+    // door unlocked, do NOT open shop here
+    // (shop opens at the exit door)
+  }
+
+  // Enemies
+  updateEnemies(w, p, dt, (dmg) => {
+    p.hp -= dmg;
+    stage.damageTaken += dmg;
+    applyHUD();
+    if (p.hp <= 0){
+      dieAndResetRun();
+    }
+  });
+
+  // Exit: only after checkpoint unlocked and (if boss exists) boss dead
+  const bossBlocks = (w.bossAlive === true);
+  if (touchExit(w, p) && !bossBlocks){
+    // open shop at exit
+    openShop();
+  }
+}
+
+boot();
+requestAnimationFrame(loop);
