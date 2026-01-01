@@ -1,5 +1,6 @@
+// js/main.js
 import { CONFIG } from "./config.js";
-import { loadAssets, getFiles } from "./assets.js";
+import { loadAssets } from "./assets.js";
 import { createInput } from "./input.js";
 import { rectsOverlap, clamp } from "./utils.js";
 import { moveAndCollide } from "./physics.js";
@@ -56,7 +57,6 @@ function resetRun(level = 1, keepCoins = true) {
   state.player.hp = Math.min(prevHPMax, prevHPMax);
   state.player.coins = prevCoins;
 
-  // ✅ spawn on real start platform
   state.player.x = state.world.spawn.x;
   state.player.y = state.world.spawn.y;
 
@@ -100,16 +100,24 @@ function spawnBullet() {
 
   const dir = state.player.face || 1;
 
-  // ✅ phone icon projectile size
+  // phone icon projectile size
   const bw = 22, bh = 22;
+
+  // ✅ random speed + random angle + arc
+  const spdMul = 1 + (Math.random() * 2 - 1) * CONFIG.throw.speedRand; // ±
+  const baseSpeed = CONFIG.throw.speed * spdMul;
+
+  const ang = (Math.random() * 2 - 1) * CONFIG.throw.angleRand; // radians
+  const vx = Math.cos(ang) * baseSpeed * dir;
+  const vy = Math.sin(ang) * baseSpeed - CONFIG.throw.arcUp;
 
   const b = {
     x: state.player.x + (dir > 0 ? state.player.w : -bw),
     y: state.player.y + state.player.h * 0.40,
     w: bw,
     h: bh,
-    vx: CONFIG.throw.speed * dir,
-    vy: 0,
+    vx,
+    vy,
     life: CONFIG.throw.life,
   };
 
@@ -120,6 +128,10 @@ function spawnBullet() {
 function updatePlayerBullets(dt) {
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
+
+    // ✅ arc gravity
+    b.vy += CONFIG.throw.gravity * dt;
+
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
@@ -186,12 +198,18 @@ function updateCamera() {
   state.camY = 0;
 }
 
+function killEnemyAtIndex(ei) {
+  const e = state.world.enemies[ei];
+  state.world.enemies.splice(ei, 1);
+  // drop coin
+  state.world.coins.push({ x: e.x + 10, y: e.y - 18, w: 18, h: 18, taken: false });
+}
+
 function gameplayStep(dt) {
   if (input.consumePress("KeyF")) spawnBullet();
 
   updatePlayer(state.player, input, dt);
   applyPhysics(state.player, dt);
-
   moveAndCollide(state.player, state.world.platforms, dt);
 
   // coins
@@ -214,17 +232,35 @@ function gameplayStep(dt) {
     }
   }
 
-  // ✅ enemy AI + bullets
+  // enemy AI + bullets
   updateEnemies(state.world, state.player, dt, state.enemyBullets);
 
-  // contact damage with enemies
-  for (const e of state.world.enemies) {
-    if (rectsOverlap(state.player, enemyRect(e))) {
-      const hit = damagePlayer(state.player, 1);
-      if (hit) {
-        state.player.vx = -state.player.face * 160;
-        state.player.vy = -420;
-      }
+  // ✅ stomp-kill OR contact damage
+  for (let ei = state.world.enemies.length - 1; ei >= 0; ei--) {
+    const e = state.world.enemies[ei];
+    const er = enemyRect(e);
+
+    if (!rectsOverlap(state.player, er)) continue;
+
+    // stomp condition: falling + player bottom is near enemy top
+    const playerBottom = state.player.y + state.player.h;
+    const enemyTop = e.y;
+
+    const falling = state.player.vy > 120;
+    const fromAbove = playerBottom <= enemyTop + 14;
+
+    if (falling && fromAbove) {
+      // ✅ stomp kills
+      killEnemyAtIndex(ei);
+      state.player.vy = -CONFIG.player.stompBounceVel; // bounce
+      continue;
+    }
+
+    // otherwise damage player
+    const hit = damagePlayer(state.player, 1);
+    if (hit) {
+      state.player.vx = -state.player.face * 160;
+      state.player.vy = -420;
     }
   }
 
@@ -239,7 +275,7 @@ function gameplayStep(dt) {
     openShop();
   }
 
-  // fell off world = reset level but keep coins
+  // fell off world
   if (state.player.y > CONFIG.canvas.h + 300) {
     resetRun(state.world.level, true);
   }
@@ -273,8 +309,6 @@ async function boot() {
   ui.boot.start.disabled = true;
   ui.boot.warn.style.display = "none";
   ui.boot.sub.textContent = "Loading assets…";
-
-  getFiles(); // keeps parity if you want to use it later
 
   const { assets, missing } = await loadAssets(({ loaded, total, file }) => {
     setBootProgress(ui, loaded, total, file);
