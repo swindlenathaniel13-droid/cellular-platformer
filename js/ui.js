@@ -1,127 +1,137 @@
-// js/ui.js
-export function $(id){ return document.getElementById(id); }
+export function bindUI() {
+  const $ = (id) => document.getElementById(id);
 
-export function show(el){ el?.classList.add("overlay--show"); }
-export function hide(el){ el?.classList.remove("overlay--show"); }
+  const boot = {
+    overlay: $("bootOverlay"),
+    bar: $("bootBar"),
+    text: $("bootText"),
+    sub: $("bootSub"),
+    file: $("bootFile"),
+    warn: $("bootWarn"),
+    start: $("bootStartBtn"),
+  };
 
-export function setBootProgress(done, total, file){
-  const pct = total ? Math.round((done/total)*100) : 0;
-  const bootBar = $("bootBar");
-  const bootText = $("bootText");
-  const bootFile = $("bootFile");
-  if (bootBar) bootBar.style.width = `${pct}%`;
-  if (bootText) bootText.textContent = `${pct}%`;
-  if (bootFile) bootFile.textContent = file ?? "—";
+  const chars = {
+    overlay: $("charOverlay"),
+    grid: $("charGrid"),
+    start: $("charStartBtn"),
+  };
+
+  const shop = {
+    overlay: $("shopOverlay"),
+    list: $("shopList"),
+    sub: $("shopSub"),
+    cont: $("shopContinueBtn"),
+  };
+
+  const hud = {
+    level: $("hudLevel"),
+    coins: $("hudCoins"),
+    dash: $("hudDash"),
+    speed: $("hudSpeed"),
+    throw: $("hudThrow"),
+    hp: $("hudHP"),
+    hpMax: $("hudHPMax"),
+  };
+
+  return { boot, chars, shop, hud };
 }
 
-export function setBootSub(text){
-  const el = $("bootSub");
-  if (el) el.textContent = text;
+export function show(el) { el?.classList.add("overlay--show"); }
+export function hide(el) { el?.classList.remove("overlay--show"); }
+
+export function setBootProgress(ui, loaded, total, file) {
+  const pct = total ? Math.round((loaded / total) * 100) : 0;
+  if (ui.boot.bar) ui.boot.bar.style.width = `${pct}%`;
+  if (ui.boot.text) ui.boot.text.textContent = `${pct}%`;
+  if (ui.boot.file) ui.boot.file.textContent = file ? `Loading: ${file}` : "—";
 }
 
-export function showBootWarn(text){
-  const el = $("bootWarn");
-  if (!el) return;
-  el.style.display = "block";
-  el.textContent = text;
+export function bootWarn(ui, text) {
+  if (!ui.boot.warn) return;
+  ui.boot.warn.style.display = "block";
+  ui.boot.warn.textContent = text;
 }
 
-export function updateHUD(state){
-  $("hudLevel").textContent = `Level: ${state.level}`;
-  $("hudCoins").textContent = `Coins: ${state.coinsTotal}`;
-  $("hudDash").textContent = `Dash: ${state.player.dashUnlocked ? "Ready" : "Locked"}`;
-  $("hudSpeed").textContent = `Speed: Normal`;
-  $("hudThrow").textContent = `Throw: ${state.player.throwCd > 0 ? "Cooldown" : "Ready"}`;
-  $("hudHP").textContent = `HP: ${state.player.hp}/${state.player.maxHP}`;
+export function updateHUD(ui, state) {
+  ui.hud.level.textContent = String(state.world.level);
+  ui.hud.coins.textContent = String(state.player.coins);
+  ui.hud.dash.textContent = state.dashUnlocked ? "Ready" : "Locked";
+  ui.hud.speed.textContent = "Normal";
+  ui.hud.throw.textContent = state.player.throwCd <= 0 ? "Ready" : "Cooldown";
+  ui.hud.hp.textContent = String(state.player.hp);
+  ui.hud.hpMax.textContent = String(state.player.hpMax);
 }
 
-export function buildCharSelect(assets, onPick){
-  const grid = $("charGrid");
-  const startBtn = $("charStartBtn");
-  grid.innerHTML = "";
-
+export function buildCharGrid(ui, assets, onPick) {
   const chars = [
-    { key:"nate",  label:"Nate"  },
+    { key:"nate", label:"Nate" },
     { key:"kevin", label:"Kevin" },
     { key:"scott", label:"Scott" },
     { key:"gilly", label:"Gilly" },
     { key:"edgar", label:"Edgar" },
   ];
 
+  ui.chars.grid.innerHTML = "";
+  ui.chars.start.disabled = true;
+
   let selected = null;
 
-  for (const c of chars){
+  for (const c of chars) {
     const btn = document.createElement("div");
     btn.className = "charBtn";
-    btn.dataset.key = c.key;
 
     const img = document.createElement("img");
-    img.src = assets[c.key]?.src ?? "";
+    img.src = assets?.[c.key]?.src || "";
     img.alt = c.label;
 
     const meta = document.createElement("div");
     meta.innerHTML = `<div style="font-family:'Press Start 2P', monospace; font-size:11px;">${c.label}</div>
-                      <div class="cardSub" style="margin:6px 0 0;">Pick your fighter.</div>`;
+                      <div class="dim tiny">Pick your fighter.</div>`;
 
     btn.appendChild(img);
     btn.appendChild(meta);
 
     btn.addEventListener("click", () => {
       selected = c.key;
-      for (const el of grid.querySelectorAll(".charBtn")) el.classList.remove("active");
+      for (const el of ui.chars.grid.querySelectorAll(".charBtn")) el.classList.remove("active");
       btn.classList.add("active");
-      startBtn.disabled = false;
+      ui.chars.start.disabled = false;
     });
 
-    grid.appendChild(btn);
+    ui.chars.grid.appendChild(btn);
   }
 
-  startBtn.disabled = true;
-  startBtn.onclick = () => onPick(selected);
+  ui.chars.start.onclick = () => {
+    if (!selected) return;
+    onPick(selected);
+  };
 }
 
-export function openShop(state, onBuy, onClose){
-  const items = $("shopItems");
-  items.innerHTML = "";
+export function buildShop(ui, state, onBuy) {
+  ui.shop.list.innerHTML = "";
 
-  const list = [
-    {
-      id:"dash",
-      name:"Dash Unlock",
-      desc:"Unlock dash (Shift).",
-      cost: 15,
-      canBuy: () => !state.player.dashUnlocked
-    },
-    {
-      id:"hp",
-      name:"+2 Max HP",
-      desc:"Increase max HP by 2.",
-      cost: 12,
-      canBuy: () => state.player.maxHP < 16
-    }
+  const items = [
+    { id:"hp", name:"+1 HP", cost: 5, desc:"Increase max HP by 1 (also heals 1)." },
+    { id:"dash", name:"Dash Unlock", cost: 12, desc:"Unlock dash for future phases." },
   ];
 
-  for (const it of list){
-    const wrap = document.createElement("div");
-    wrap.className = "shopItem";
+  for (const it of items) {
+    const row = document.createElement("div");
+    row.className = "shopItem";
 
-    wrap.innerHTML = `
-      <div class="name">${it.name}</div>
-      <div class="desc">${it.desc}</div>
-      <div class="buyRow">
-        <div class="cost">${it.cost} coins</div>
-        <button class="btn" style="width:auto; padding:10px 12px;">BUY</button>
-      </div>
-    `;
+    const left = document.createElement("div");
+    left.innerHTML = `<div class="name">${it.name} (${it.cost})</div><div class="desc">${it.desc}</div>`;
 
-    const btn = wrap.querySelector("button");
-    const ok = it.canBuy();
+    const btn = document.createElement("button");
+    btn.className = "btn buy";
+    btn.textContent = "BUY";
+    btn.disabled = state.player.coins < it.cost;
 
-    btn.disabled = !ok || state.coinsTotal < it.cost;
     btn.onclick = () => onBuy(it);
 
-    items.appendChild(wrap);
+    row.appendChild(left);
+    row.appendChild(btn);
+    ui.shop.list.appendChild(row);
   }
-
-  $("shopCloseBtn").onclick = onClose;
 }
