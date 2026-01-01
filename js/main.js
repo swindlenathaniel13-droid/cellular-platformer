@@ -5,7 +5,7 @@ import { rectsOverlap, clamp } from "./utils.js";
 import { moveAndCollide } from "./physics.js";
 import { createPlayer, updatePlayer, applyPhysics, canThrow, markThrew, damagePlayer } from "./player.js";
 import { generateLevel } from "./world.js";
-import { hitEnemy, enemyRect } from "./enemies.js";
+import { hitEnemy, enemyRect, updateEnemies } from "./enemies.js";
 import { drawGame } from "./render.js";
 import { bindUI, show, hide, setBootProgress, bootWarn, updateHUD, buildCharGrid, buildShop } from "./ui.js";
 
@@ -25,10 +25,11 @@ const state = {
   world: null,
   player: null,
   bullets: [],
+  enemyBullets: [],
   camX: 0,
   camY: 0,
 
-  phase: "BOOT",  // BOOT -> CHAR -> PLAY -> SHOP
+  phase: "BOOT",
   dashUnlocked: false,
 
   lastT: 0,
@@ -52,14 +53,15 @@ function resetRun(level = 1, keepCoins = true) {
 
   state.player = createPlayer(prevChar);
   state.player.hpMax = prevHPMax;
-  state.player.hp = prevHPMax;
+  state.player.hp = Math.min(prevHPMax, prevHPMax);
   state.player.coins = prevCoins;
 
-  // spawn at left on ground
-  state.player.x = 120;
-  state.player.y = CONFIG.world.floorY - state.player.h;
+  // ✅ spawn on real start platform
+  state.player.x = state.world.spawn.x;
+  state.player.y = state.world.spawn.y;
 
   state.bullets = [];
+  state.enemyBullets = [];
 }
 
 function nextLevel() {
@@ -72,7 +74,8 @@ function nextLevel() {
 function openShop() {
   state.phase = "SHOP";
   show(ui.shop.overlay);
-  buildShop(ui, state, (item) => {
+
+  const doBuy = (item) => {
     if (state.player.coins < item.cost) return;
 
     if (item.id === "hp") {
@@ -85,22 +88,10 @@ function openShop() {
       state.dashUnlocked = true;
     }
 
-    buildShop(ui, state, (i) => {
-      // rebind handler on rebuild
-      if (state.player.coins < i.cost) return;
-      if (i.id === "hp") {
-        state.player.coins -= i.cost;
-        state.player.hpMax += 1;
-        state.player.hp = Math.min(state.player.hpMax, state.player.hp + 1);
-      }
-      if (i.id === "dash") {
-        state.player.coins -= i.cost;
-        state.dashUnlocked = true;
-      }
-      buildShop(ui, state, arguments.callee);
-    });
-  });
+    buildShop(ui, state, doBuy);
+  };
 
+  buildShop(ui, state, doBuy);
   ui.shop.cont.onclick = () => nextLevel();
 }
 
@@ -108,11 +99,15 @@ function spawnBullet() {
   if (!canThrow(state.player)) return;
 
   const dir = state.player.face || 1;
+
+  // ✅ phone icon projectile size
+  const bw = 22, bh = 22;
+
   const b = {
-    x: state.player.x + (dir > 0 ? state.player.w : -CONFIG.throw.w),
-    y: state.player.y + state.player.h * 0.52,
-    w: CONFIG.throw.w,
-    h: CONFIG.throw.h,
+    x: state.player.x + (dir > 0 ? state.player.w : -bw),
+    y: state.player.y + state.player.h * 0.40,
+    w: bw,
+    h: bh,
     vx: CONFIG.throw.speed * dir,
     vy: 0,
     life: CONFIG.throw.life,
@@ -122,15 +117,16 @@ function spawnBullet() {
   markThrew(state.player);
 }
 
-function updateBullets(dt) {
+function updatePlayerBullets(dt) {
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i];
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.life -= dt;
 
-    // collide with platforms
     let dead = b.life <= 0;
+
+    // platform collision
     if (!dead) {
       for (const p of state.world.platforms) {
         if (rectsOverlap(b, p)) { dead = true; break; }
@@ -158,25 +154,47 @@ function updateBullets(dt) {
   }
 }
 
+function updateEnemyBullets(dt) {
+  for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
+    const b = state.enemyBullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+
+    let dead = b.life <= 0;
+
+    // platforms block them
+    if (!dead) {
+      for (const p of state.world.platforms) {
+        if (rectsOverlap(b, p)) { dead = true; break; }
+      }
+    }
+
+    // hit player
+    if (!dead && rectsOverlap(b, state.player)) {
+      damagePlayer(state.player, 1);
+      dead = true;
+    }
+
+    if (dead) state.enemyBullets.splice(i, 1);
+  }
+}
+
 function updateCamera() {
-  // keep player centered-ish
   const targetX = state.player.x + state.player.w * 0.5 - CONFIG.canvas.w * 0.5;
   state.camX = clamp(targetX, 0, Math.max(0, state.world.W - CONFIG.canvas.w));
   state.camY = 0;
 }
 
 function gameplayStep(dt) {
-  // throw
   if (input.consumePress("KeyF")) spawnBullet();
 
-  // update player input + physics
   updatePlayer(state.player, input, dt);
   applyPhysics(state.player, dt);
 
   moveAndCollide(state.player, state.world.platforms, dt);
 
-  // if landed, refresh coyote in player.update next frame (already handled)
-  // collect coins
+  // coins
   for (const c of state.world.coins) {
     if (c.taken) continue;
     if (rectsOverlap(state.player, c)) {
@@ -185,20 +203,21 @@ function gameplayStep(dt) {
     }
   }
 
-  // spikes damage (small hitbox)
+  // spikes
   for (const s of state.world.spikes) {
-    const hb = spikeHitbox(s);
-    if (rectsOverlap(state.player, hb)) {
+    if (rectsOverlap(state.player, spikeHitbox(s))) {
       const hit = damagePlayer(state.player, 1);
       if (hit) {
-        // knockback
         state.player.vx = -state.player.face * 140;
         state.player.vy = -420;
       }
     }
   }
 
-  // enemy touch damage
+  // ✅ enemy AI + bullets
+  updateEnemies(state.world, state.player, dt, state.enemyBullets);
+
+  // contact damage with enemies
   for (const e of state.world.enemies) {
     if (rectsOverlap(state.player, enemyRect(e))) {
       const hit = damagePlayer(state.player, 1);
@@ -209,25 +228,24 @@ function gameplayStep(dt) {
     }
   }
 
-  // checkpoint: unlock exit ONLY
+  // checkpoint unlocks exit only
   if (!state.world.checkpoint.reached && rectsOverlap(state.player, state.world.checkpoint)) {
     state.world.checkpoint.reached = true;
     state.world.exitUnlocked = true;
   }
 
-  // exit: only works if unlocked, then open shop
+  // exit opens shop (only if unlocked)
   if (state.world.exitUnlocked && rectsOverlap(state.player, state.world.exit)) {
     openShop();
   }
 
-  // fell off world
+  // fell off world = reset level but keep coins
   if (state.player.y > CONFIG.canvas.h + 300) {
-    // reset level but KEEP coins (you asked coins should not randomly reset on progress)
-    // if you want death to lose coins later, we can change that rule
     resetRun(state.world.level, true);
   }
 
-  updateBullets(dt);
+  updatePlayerBullets(dt);
+  updateEnemyBullets(dt);
   updateCamera();
 }
 
@@ -236,17 +254,13 @@ function loop(t) {
   const dt = Math.min(0.033, (t - state.lastT) / 1000);
   state.lastT = t;
 
-  if (state.phase === "PLAY") {
-    gameplayStep(dt);
-  }
+  if (state.phase === "PLAY") gameplayStep(dt);
 
-  // draw
   if (state.assets && state.world && state.player) {
     drawGame(ctx, state);
     updateHUD(ui, state);
   }
 
-  // clear per-frame pressed/released
   input.clearFrame();
   requestAnimationFrame(loop);
 }
@@ -260,7 +274,7 @@ async function boot() {
   ui.boot.warn.style.display = "none";
   ui.boot.sub.textContent = "Loading assets…";
 
-  const files = getFiles();
+  getFiles(); // keeps parity if you want to use it later
 
   const { assets, missing } = await loadAssets(({ loaded, total, file }) => {
     setBootProgress(ui, loaded, total, file);
@@ -275,7 +289,7 @@ async function boot() {
       missing.map(m => `- ${m}`).join("\n") +
       "\n\nFix checklist:\n" +
       "• Folder name is exactly: assets\n" +
-      "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
+      "• Filenames match EXACT case\n" +
       "• Files are at /assets (not /assets/assets)\n"
     );
   }
@@ -292,7 +306,7 @@ async function boot() {
       hide(ui.chars.overlay);
       state.phase = "PLAY";
       state.player = createPlayer(picked);
-      resetRun(1, false); // new run starts with 0 coins
+      resetRun(1, false);
     });
   };
 
