@@ -1,81 +1,90 @@
+// js/render.js
 import { CONFIG } from "./config.js";
 
-export function renderGame(ctx, assets, world, player, camera){
-  ctx.clearRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
-
-  // Background
-  if (assets.bg){
-    ctx.drawImage(assets.bg, 0 - camera.x*0.15, 0, CONFIG.CANVAS_W + camera.x*0.15, CONFIG.CANVAS_H);
+export function render(ctx, assets, world, player){
+  // background
+  const bg = assets.bg;
+  if (bg){
+    ctx.drawImage(bg, 0, 0, CONFIG.canvas.w, CONFIG.canvas.h);
   } else {
     ctx.fillStyle = "#000";
-    ctx.fillRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+    ctx.fillRect(0,0,CONFIG.canvas.w, CONFIG.canvas.h);
   }
 
-  // Platforms
+  // platforms
+  const platImg = assets.platform;
   for (const p of world.platforms){
-    drawTiled(ctx, assets.platform, p.x - camera.x, p.y - camera.y, p.w, p.h);
-  }
-
-  // Spikes
-  for (const s of world.hazards){
-    drawSprite(ctx, assets.spike, s.x - camera.x, s.y - camera.y, s.w, s.h);
-  }
-
-  // Coins
-  for (const c of world.coins){
-    if (c.taken) continue;
-    drawSprite(ctx, assets.coin, c.x - camera.x, c.y - camera.y, c.w, c.h);
-  }
-
-  // Checkpoint Flag
-  if (world.checkpoint){
-    drawSprite(ctx, assets.flag, world.checkpoint.x - camera.x, world.checkpoint.y - camera.y, world.checkpoint.w, world.checkpoint.h);
-  }
-
-  // Exit Door (dim if locked)
-  if (world.exitDoor){
-    if (!world.exitUnlocked){
-      ctx.globalAlpha = 0.45;
-      drawSprite(ctx, assets.door, world.exitDoor.x - camera.x, world.exitDoor.y - camera.y, world.exitDoor.w, world.exitDoor.h);
-      ctx.globalAlpha = 1;
-    } else {
-      drawSprite(ctx, assets.door, world.exitDoor.x - camera.x, world.exitDoor.y - camera.y, world.exitDoor.w, world.exitDoor.h);
+    if (platImg) ctx.drawImage(platImg, p.x, p.y, p.w, p.h);
+    else {
+      ctx.fillStyle = "#1c3a55";
+      ctx.fillRect(p.x, p.y, p.w, p.h);
     }
   }
 
-  // Enemies
+  // coins
+  const coinImg = assets.coin;
+  for (const c of world.coins){
+    if (c.taken) continue;
+    if (coinImg) ctx.drawImage(coinImg, c.x, c.y, c.w, c.h);
+  }
+
+  // spikes
+  const spikeImg = assets.spike;
+  for (const s of world.spikes){
+    if (spikeImg) ctx.drawImage(spikeImg, s.x, s.y, s.w, s.h);
+  }
+
+  // checkpoint flag
+  if (assets.flag){
+    const f = world.checkpoint;
+    ctx.drawImage(assets.flag, f.x, f.y, f.w, f.h);
+  }
+
+  // door
+  if (assets.door){
+    const d = world.door;
+    ctx.save();
+    if (!d.unlocked){
+      ctx.globalAlpha = 0.55;
+    }
+    ctx.drawImage(assets.door, d.x, d.y, d.w, d.h);
+    ctx.restore();
+  }
+
+  // enemies
   for (const e of world.enemies){
-    if (e.hp <= 0) continue;
-    const img = e.kind === "enemy2" ? assets.enemy2 : assets.enemy1;
-    drawSprite(ctx, img, e.x - camera.x, e.y - camera.y, e.w, e.h);
+    const img = assets[e.kind];
+    if (img) ctx.drawImage(img, e.x, e.y, e.w, e.h);
+    else {
+      ctx.fillStyle = "#ff4444";
+      ctx.fillRect(e.x,e.y,e.w,e.h);
+    }
   }
 
-  // Player
-  const pimg = assets[player.charKey] || assets.nate;
-  drawSprite(ctx, pimg, player.x - camera.x, player.y - camera.y, player.w, player.h);
-}
+  // projectiles (phone)
+  const phone = assets.phone;
+  for (const p of player.projectiles){
+    if (phone) ctx.drawImage(phone, p.x, p.y, p.w, p.h);
+    else {
+      ctx.fillStyle = "#ffd166";
+      ctx.fillRect(p.x,p.y,p.w,p.h);
+    }
+  }
 
-function drawSprite(ctx, img, x, y, w, h){
-  x = Math.round(x);
-  y = Math.round(y);
-  if (!img){
+  // player
+  const pImg = assets[player.charKey];
+  if (pImg) ctx.drawImage(pImg, player.x, player.y, player.w, player.h);
+  else {
+    ctx.fillStyle = "#58d6ff";
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+  }
+
+  // invuln blink
+  if (player.inv > 0){
+    ctx.save();
+    ctx.globalAlpha = 0.25;
     ctx.fillStyle = "#fff";
-    ctx.fillRect(x,y,w,h);
-    return;
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.restore();
   }
-  ctx.drawImage(img, x, y, w, h);
-}
-
-// Tile platform art if you want cleaner fill (works even if the png isn't tile-perfect)
-function drawTiled(ctx, img, x, y, w, h){
-  x = Math.round(x);
-  y = Math.round(y);
-
-  if (!img){
-    ctx.fillStyle = "#1e4";
-    ctx.fillRect(x,y,w,h);
-    return;
-  }
-  // Simple stretch (fast + consistent)
-  ctx.drawImage(img, x, y, w, h);
 }
