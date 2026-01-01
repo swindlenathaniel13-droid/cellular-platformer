@@ -1,155 +1,126 @@
+// js/world.js
 import { CONFIG } from "./config.js";
-import { clamp, randi, randf } from "./utils.js";
+import { mulberry32, rectsOverlap, clamp } from "./utils.js";
 
-export function createWorld(level){
-  const world = {
-    level,
-    width: 2600 + level * 160,
-    height: 1200,
+function makeRect(x,y,w,h){ return { x,y,w,h }; }
 
-    platforms: [],
-    coins: [],
-    hazards: [],
-    enemies: [],
-
-    checkpoint: null,
-    exitDoor: null,
-
-    checkpointHit: false,
-    exitUnlocked: false,
-
-    exitPlatform: null
-  };
-
-  generatePlatforms(world);
-  placeCheckpointAndExit(world);
-  generateCoins(world);
-  generateSpikes(world);
-
-  return world;
+function spikeHitbox(spike){
+  // FIX: hitbox smaller than sprite (your “one spike kills too easily” issue)
+  // Only top-ish area hurts.
+  const padX = spike.w * 0.18;
+  const topY = spike.y + spike.h * 0.18;
+  const hbH  = spike.h * 0.52;
+  return { x: spike.x + padX, y: topY, w: spike.w - padX*2, h: hbH };
 }
 
-function addPlatform(world, x, y, w){
-  world.platforms.push({ x, y, w, h: CONFIG.PLATFORM_H });
-}
+export function generateWorld(level, assets, seed = 1234){
+  const rnd = mulberry32(seed + level * 999);
 
-function generatePlatforms(world){
-  const yGround = 420;
-  addPlatform(world, 0, yGround, 520);
+  const floorY = CONFIG.world.floorY;
+  const levelLen = CONFIG.world.levelLen;
 
-  let x = 520;
-  let y = yGround;
-  const endX = world.width - 520;
+  const platforms = [];
+  const coins = [];
+  const spikes = [];
+  const enemies = [];
 
-  while (x < endX){
-    const gap = randi(80, CONFIG.MAX_GAP);
+  // Start + finish platforms (guaranteed safe)
+  platforms.push(makeRect(0, floorY, 520, CONFIG.world.platformH));
+
+  const finishX = levelLen - 560;
+  platforms.push(makeRect(finishX, floorY, 560, CONFIG.world.platformH));
+
+  // Mid platforms - keep gaps doable
+  let x = 520 + 80;
+  let y = floorY - 120;
+
+  const count = 7 + Math.floor(rnd()*4);
+  for (let i=0;i<count;i++){
+    const w = 220 + Math.floor(rnd()*220);
+
+    const gap = 80 + Math.floor(rnd() * (CONFIG.world.maxGap - 80));
     x += gap;
 
-    const w = randi(CONFIG.MIN_PLATFORM_W, CONFIG.MAX_PLATFORM_W);
+    const rise = (rnd() < 0.5 ? -1 : 1) * Math.floor(rnd() * CONFIG.world.maxRise);
+    y = clamp(y + rise, floorY - 220, floorY - 80);
 
-    // rise/fall but clamp so jumps stay doable
-    const rise = randi(-70, CONFIG.MAX_RISE);
-    y = clamp(y - rise, 220, 440);
+    platforms.push(makeRect(x, y, w, CONFIG.world.platformH));
 
-    addPlatform(world, x, y, w);
+    // Coins on platform
+    const coinCount = 2 + Math.floor(rnd()*4);
+    for (let c=0;c<coinCount;c++){
+      const cx = x + 28 + c * 44;
+      if (cx < x + w - 20){
+        coins.push({ x: cx, y: y - 34, w: 20, h: 20, taken:false });
+      }
+    }
 
-    x += w;
-  }
+    // Spikes sometimes (on top of platform)
+    if (rnd() < CONFIG.world.spikeChance){
+      const spikeNum = 1 + Math.floor(rnd()*3);
+      for (let s=0;s<spikeNum;s++){
+        const sx = x + 24 + s * 44;
+        if (sx < x + w - 32){
+          spikes.push({ x: sx, y: y - 26, w: 26, h: 26 });
+        }
+      }
+    }
 
-  // Ensure a big final platform for exit
-  addPlatform(world, world.width - 520, 420, 520);
-}
-
-function pickPlatformNearX(world, targetX){
-  let best = null;
-  let bestD = 1e9;
-  for (const p of world.platforms){
-    const center = p.x + p.w/2;
-    const d = Math.abs(center - targetX);
-    if (d < bestD){
-      bestD = d;
-      best = p;
+    // Enemy sometimes
+    if (rnd() < CONFIG.world.enemyChance){
+      enemies.push({
+        kind: (rnd() < 0.65 ? "enemy1" : "enemy2"),
+        x: x + w*0.55,
+        y: y - 46,
+        w: 34,
+        h: 46,
+        vx: rnd()<0.5 ? -60 : 60,
+        hp: (rnd()<0.65 ? 2 : 3),
+        onGround:false,
+        inv:0
+      });
     }
   }
-  return best;
-}
 
-function placeCheckpointAndExit(world){
-  const cx = world.width * 0.62;
-  const ex = world.width * 0.90;
-
-  const cp = pickPlatformNearX(world, cx);
-  const ep = pickPlatformNearX(world, ex);
-
-  world.exitPlatform = ep;
-
-  // Put flag and door ON the platform, centered, above the top surface
-  world.checkpoint = {
-    x: cp.x + cp.w * 0.30,
-    y: cp.y - 46,
-    w: 28,
-    h: 46
+  // Checkpoint: always on a platform
+  const checkpointPlatform = platforms[platforms.length - 2]; // near end but before finish
+  const checkpoint = {
+    x: checkpointPlatform.x + checkpointPlatform.w*0.25,
+    y: checkpointPlatform.y - 54,
+    w: 26,
+    h: 54,
+    reached: false
   };
 
-  world.exitDoor = {
-    x: ep.x + ep.w * 0.70,
-    y: ep.y - 64,
-    w: 44,
-    h: 64
+  // Exit door: always on finish platform
+  const door = {
+    x: finishX + 420,
+    y: floorY - 92,
+    w: 52,
+    h: 92,
+    unlocked: false
   };
 
-  // Safety: ensure they don't hang off edges
-  world.checkpoint.x = clamp(world.checkpoint.x, cp.x + 10, cp.x + cp.w - world.checkpoint.w - 10);
-  world.exitDoor.x = clamp(world.exitDoor.x, ep.x + 10, ep.x + ep.w - world.exitDoor.w - 10);
+  return {
+    levelLen,
+    platforms,
+    coins,
+    spikes,
+    enemies,
+    checkpoint,
+    door
+  };
 }
 
-function generateCoins(world){
-  world.coins = [];
-  // A few coins above random platforms
-  for (let i=0;i<18;i++){
-    const p = world.platforms[(Math.random()*world.platforms.length)|0];
-    const x = p.x + 20 + Math.random() * Math.max(10, p.w - 40);
-    const y = p.y - 50 - Math.random() * 60;
-    world.coins.push({ x, y, w: 20, h: 20, taken:false });
-  }
+export function getSolids(world){
+  return world.platforms;
 }
 
-function generateSpikes(world){
-  world.hazards = [];
-  const spikeCount = Math.min(2 + Math.floor(world.level * 0.6), 10);
-
-  for (let i=0;i<spikeCount;i++){
-    const p = world.platforms[(Math.random()*world.platforms.length)|0];
-    if (!p) continue;
-
-    // avoid start / checkpoint / exit zones
-    if (p.x < 260) continue;
-    if (Math.abs((p.x+p.w/2) - (world.checkpoint.x)) < 180) continue;
-    if (Math.abs((p.x+p.w/2) - (world.exitDoor.x)) < 220) continue;
-
-    const x = p.x + 20 + Math.random() * Math.max(10, p.w - 80);
-    const y = p.y - CONFIG.SPIKE_H + 6;
-
-    world.hazards.push({
-      x, y,
-      w: CONFIG.SPIKE_W,
-      h: CONFIG.SPIKE_H,
-      damage: CONFIG.SPIKE_DAMAGE
-    });
-  }
-}
-
-export function collectCoins(world, player){
+export function collectCoins(world, playerRect){
   let got = 0;
   for (const c of world.coins){
     if (c.taken) continue;
-    const hit = (
-      player.x < c.x + c.w &&
-      player.x + player.w > c.x &&
-      player.y < c.y + c.h &&
-      player.y + player.h > c.y
-    );
-    if (hit){
+    if (rectsOverlap(playerRect, c)){
       c.taken = true;
       got++;
     }
@@ -157,31 +128,30 @@ export function collectCoins(world, player){
   return got;
 }
 
-export function touchCheckpoint(world, player){
-  if (world.checkpointHit) return false;
-  const f = world.checkpoint;
-  const hit = (
-    player.x < f.x + f.w &&
-    player.x + player.w > f.x &&
-    player.y < f.y + f.h &&
-    player.y + player.h > f.y
-  );
-  if (hit){
-    world.checkpointHit = true;
-    world.exitUnlocked = true;
+export function checkCheckpoint(world, playerRect){
+  if (world.checkpoint.reached) return false;
+  if (rectsOverlap(playerRect, world.checkpoint)){
+    world.checkpoint.reached = true;
+
+    // FIX: checkpoint unlocks exit door (does NOT advance stage)
+    world.door.unlocked = true;
     return true;
   }
   return false;
 }
 
-export function touchExit(world, player){
-  if (!world.exitUnlocked) return false;
-  const d = world.exitDoor;
-  const hit = (
-    player.x < d.x + d.w &&
-    player.x + player.w > d.x &&
-    player.y < d.y + d.h &&
-    player.y + player.h > d.y
-  );
-  return hit;
+export function checkExit(world, playerRect){
+  if (!world.door.unlocked) return false;
+  if (rectsOverlap(playerRect, world.door)) return true;
+  return false;
+}
+
+export function spikeDamage(world, playerRect){
+  for (const sp of world.spikes){
+    const hb = spikeHitbox(sp);
+    if (rectsOverlap(playerRect, hb)){
+      return CONFIG.world.spikeDamage;
+    }
+  }
+  return 0;
 }
