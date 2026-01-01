@@ -1,317 +1,307 @@
-import { CONFIG } from "./config.js";
-import { loadAssets } from "./assets.js";
-import { createInput } from "./input.js";
-import { nowSec } from "./utils.js";
-import { createUI, setBootProgress, showBootWarn, setHUD, buildCharSelect, showShop, showStageComplete } from "./ui.js";
-import { createWorld, collectCoins, touchCheckpoint, touchExit } from "./world.js";
-import { createPlayer, updatePlayer } from "./player.js";
-import { spawnEnemiesForLevel, updateEnemies } from "./enemies.js";
-import { renderGame } from "./render.js";
+// js/main.js
+window.__BOOT_JS_OK = true;
 
-const canvas = document.getElementById("game");
+import { CONFIG } from "./config.js";
+import { loadAssets, FILES } from "./assets.js";
+import { createInput, anyPressed, KEYS } from "./input.js";
+import { moveAndCollide } from "./physics.js";
+import { generateWorld, getSolids, collectCoins, checkCheckpoint, checkExit, spikeDamage } from "./world.js";
+import { createPlayer, updatePlayer, applyGravity, tryThrow, updateProjectiles, hurtPlayer, snapshotRunState, restoreRunState } from "./player.js";
+import { updateEnemies, projectileHits, enemyTouchDamage } from "./enemies.js";
+import { render } from "./render.js";
+import { $, show, hide, setBootProgress, setBootSub, showBootWarn, updateHUD, buildCharSelect, openShop } from "./ui.js";
+
+const canvas = $("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-const ui = createUI();
-const input = createInput();
+// Force canvas logical size
+canvas.width = CONFIG.canvas.w;
+canvas.height = CONFIG.canvas.h;
 
-let assets = null;
+const input = createInput(window);
 
-let paused = false;
-let gameStarted = false;
+const bootOverlay = $("bootOverlay");
+const bootStartBtn = $("bootStartBtn");
 
-let run = null;     // persistent across levels (unless death/restart)
-let stage = null;   // per-level
+const charOverlay = $("charOverlay");
+const pauseOverlay = $("pauseOverlay");
+const shopOverlay = $("shopOverlay");
+const resultsOverlay = $("resultsOverlay");
 
-function newRun(){
-  return {
-    level: 1,
-    coins: 0,
-    baseHP: CONFIG.START_HP,
-    maxHP: CONFIG.START_HP,
-    dashUnlocked: false,
-    speedTier: 0
-  };
+const pauseResumeBtn = $("pauseResumeBtn");
+const pauseRestartBtn = $("pauseRestartBtn");
+
+const resTitle = $("resTitle");
+const resCoins = $("resCoins");
+const resDamage = $("resDamage");
+const resTime = $("resTime");
+const resContinueBtn = $("resContinueBtn");
+
+// Global game state (run)
+const state = {
+  assets: null,
+  mode: "boot", // boot | char | play | pause | shop | results
+  level: 1,
+
+  coinsTotal: 0,
+
+  // per-stage stats
+  stageCoins: 0,
+  stageDamage: 0,
+  stageTime: 0,
+
+  world: null,
+  player: null,
+
+  // snapshot at level start (for “Restart Level refunds shop purchases this level”)
+  levelSnap: null
+};
+
+function resetStageStats(){
+  state.stageCoins = 0;
+  state.stageDamage = 0;
+  state.stageTime = 0;
 }
 
-function newStage(level, charKey){
-  const world = createWorld(level);
-  spawnEnemiesForLevel(world, level);
+function startLevel(level){
+  state.level = level;
 
-  const player = createPlayer(60, 380, charKey);
-  player.maxHP = run.maxHP;
-  player.hp = run.maxHP;
-  player.dashUnlocked = run.dashUnlocked;
-  player.speedMult = 1.0 + run.speedTier * 0.08;
+  state.world = generateWorld(level, state.assets, 1337);
+  state.player.x = 40;
+  state.player.y = CONFIG.world.floorY - state.player.h;
 
-  return {
-    world,
-    player,
-    cam: { x: 0, y: 0 },
-    stageCoins: 0,
-    damageTaken: 0,
-    startTime: nowSec(),
-    finished: false,
-    inShop: false
-  };
+  state.player.vx = 0;
+  state.player.vy = 0;
+
+  resetStageStats();
+
+  // snapshot (coins + upgrades at level start)
+  state.levelSnap = snapshotRunState(state.player, state.coinsTotal);
+
+  hide(shopOverlay);
+  hide(pauseOverlay);
+  hide(resultsOverlay);
+
+  state.mode = "play";
 }
 
-function setCamera(){
-  // Follow player with clamping
-  const targetX = stage.player.x - CONFIG.CANVAS_W * 0.35;
-  stage.cam.x = Math.max(0, Math.min(stage.world.width - CONFIG.CANVAS_W, targetX));
-  stage.cam.y = 0;
+function restartLevelWithRefund(){
+  if (!state.levelSnap) return;
+  restoreRunState(state.player, state.levelSnap);
+  state.coinsTotal = state.levelSnap.coinsTotal;
+  startLevel(state.level);
 }
 
-function applyHUD(){
-  setHUD(ui, {
-    level: run.level,
-    coins: run.coins,
-    dashUnlocked: run.dashUnlocked,
-    speedTier: run.speedTier,
-    hp: stage.player.hp,
-    maxHP: stage.player.maxHP
-  });
+function runDeathReset(){
+  // Death = new run (back to level 1)
+  state.coinsTotal = 0;
+  state.player.dashUnlocked = false;
+  state.player.maxHP = CONFIG.player.maxHP;
+  state.player.hp = state.player.maxHP;
+  startLevel(1);
 }
 
-function openShop(){
-  stage.inShop = true;
-  ui.show(ui.shop.overlay);
+function openResults(title){
+  state.mode = "results";
+  resTitle.textContent = title;
+  resCoins.textContent = String(state.stageCoins);
+  resDamage.textContent = String(state.stageDamage);
+  resTime.textContent = `${state.stageTime.toFixed(1)}s`;
+  show(resultsOverlay);
+}
 
-  showShop(
-    ui,
-    run,
-    (id, cost) => {
-      if (run.coins < cost) return;
-      if (id === "dash" && !run.dashUnlocked){
-        run.coins -= cost;
-        run.dashUnlocked = true;
+function openShopNow(){
+  state.mode = "shop";
+  show(shopOverlay);
+
+  openShop(
+    state,
+    (item) => {
+      if (state.coinsTotal < item.cost) return;
+
+      // BUY
+      state.coinsTotal -= item.cost;
+
+      if (item.id === "dash"){
+        state.player.dashUnlocked = true;
+      } else if (item.id === "hp"){
+        state.player.maxHP += 2;
+        state.player.hp = state.player.maxHP;
       }
-      if (id === "speed" && run.speedTier < 3){
-        run.coins -= cost;
-        run.speedTier += 1;
-      }
-      if (id === "hp" && run.maxHP < run.baseHP + 5){
-        run.coins -= cost;
-        run.maxHP += 1;
-      }
-      // reflect upgrades on player for next stage only
-      applyHUD();
+
+      updateHUD(state);
+      openShopNow(); // rebuild buttons disabled/enabled
     },
     () => {
-      ui.hide(ui.shop.overlay);
-      stage.inShop = false;
-      stageComplete();
+      hide(shopOverlay);
+      state.mode = "play";
     }
   );
 }
 
-function stageComplete(){
-  stage.finished = true;
-
-  const t = nowSec() - stage.startTime;
-  const stats = {
-    stageCoins: stage.stageCoins,
-    damageTaken: stage.damageTaken,
-    time: t,
-    totalCoins: run.coins
-  };
-
-  ui.show(ui.stage.overlay);
-  showStageComplete(ui, stats, () => {
-    ui.hide(ui.stage.overlay);
-    nextLevel();
-  });
-}
-
-function nextLevel(){
-  // next level, keep run coins + upgrades
-  run.level += 1;
-
-  ui.show(ui.boot.overlay);
-  if (ui.boot.sub) ui.boot.sub.textContent = "Loading next stage…";
-  if (ui.boot.startBtn) ui.boot.startBtn.disabled = true;
-
-  // quick fake loader (arcade vibe)
-  let fake = 0;
-  const tick = () => {
-    fake += 1;
-    setBootProgress(ui, fake, 20, "Building level…");
-    if (fake < 20) requestAnimationFrame(tick);
-    else {
-      ui.hide(ui.boot.overlay);
-      stage = newStage(run.level, stage.player.charKey);
-      applyHUD();
-    }
-  };
-  requestAnimationFrame(tick);
-}
-
-function dieAndResetRun(){
-  ui.show(ui.death.overlay);
-  ui.death.restartBtn.onclick = () => {
-    ui.hide(ui.death.overlay);
-    run = newRun();
-    stage = newStage(run.level, stage.player.charKey);
-    applyHUD();
-  };
-}
-
-function togglePause(){
-  if (!gameStarted) return;
-  paused = !paused;
-  if (paused) ui.show(ui.pause.overlay);
-  else ui.hide(ui.pause.overlay);
-}
-
-window.addEventListener("keydown", (e) => {
-  if (e.code === "Escape"){
-    e.preventDefault();
-    togglePause();
-  }
-});
-
-ui.pause.resumeBtn.onclick = () => togglePause();
-ui.pause.restartRunBtn.onclick = () => {
-  // Reset EVERYTHING (coins + upgrades), per your request
-  ui.hide(ui.pause.overlay);
-  paused = false;
-  run = newRun();
-  stage = newStage(run.level, stage.player.charKey);
-  applyHUD();
+// Pause wiring
+pauseResumeBtn.onclick = () => {
+  hide(pauseOverlay);
+  state.mode = "play";
 };
 
-async function boot(){
-  ui.show(ui.boot.overlay);
-  if (ui.boot.sub) ui.boot.sub.textContent = "Loading assets…";
+pauseRestartBtn.onclick = () => {
+  const ok = confirm("Restart Level?\nThis resets the level and refunds shop purchases made this level.");
+  if (!ok) return;
+  hide(pauseOverlay);
+  restartLevelWithRefund();
+};
 
-  const { assets: loaded, missing } = await loadAssets(({ done, total, file }) => {
-    setBootProgress(ui, done, total, file);
+// Results continue
+resContinueBtn.onclick = () => {
+  hide(resultsOverlay);
+  startLevel(state.level + 1);
+};
+
+// Boot
+bootStartBtn.disabled = true;
+bootStartBtn.onclick = () => {
+  hide(bootOverlay);
+  show(charOverlay);
+  state.mode = "char";
+
+  buildCharSelect(state.assets, (pick) => {
+    hide(charOverlay);
+    state.player = createPlayer(40, CONFIG.world.floorY - CONFIG.player.h, pick);
+    startLevel(1);
   });
+};
 
-  assets = loaded;
+// Load assets
+(async function boot(){
+  try{
+    setBootSub("JS OK — Loading assets…");
 
-  if (missing.length){
-    showBootWarn(ui,
-      "Some assets failed to load:\n" +
-      missing.map(m => `- ${m}`).join("\n") +
-      "\n\nFix checklist:\n" +
-      "• Folder name is exactly: assets\n" +
-      "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
-      "• Files are at /assets (not /assets/assets)\n"
-    );
-  }
-
-  if (ui.boot.sub) ui.boot.sub.textContent = "Assets loaded. Press START.";
-  ui.boot.startBtn.disabled = false;
-
-  ui.boot.startBtn.onclick = () => {
-    ui.hide(ui.boot.overlay);
-    ui.show(ui.chars.overlay);
-    buildCharSelect(ui, assets, (charKey) => {
-      ui.hide(ui.chars.overlay);
-      startGame(charKey);
+    const { assets, missing, total } = await loadAssets(({done, total, file}) => {
+      setBootProgress(done, total, file);
     });
-  };
-}
 
-function startGame(charKey){
-  gameStarted = true;
-  run = newRun();
-  stage = newStage(run.level, charKey);
-  applyHUD();
-}
+    state.assets = assets;
+
+    if (missing.length){
+      showBootWarn(
+        "Some assets failed to load:\n" +
+        missing.map(m => `- ${m}`).join("\n") +
+        "\n\nFix checklist:\n" +
+        "• Folder name is exactly: assets\n" +
+        "• Filenames match EXACT case (Coin.png ≠ coin.png)\n" +
+        "• Files are at /assets (not /assets/assets)\n"
+      );
+    }
+
+    setBootSub(`Assets loaded (${total - missing.length}/${total}). Press START.`);
+    bootStartBtn.disabled = false;
+  } catch (e){
+    showBootWarn(`Loader crashed:\n${String(e)}`);
+  }
+})();
 
 let last = performance.now();
-let acc = 0;
-const FIXED = 1/60;
 
 function loop(now){
-  const dt = Math.min(0.05, (now - last)/1000);
-  last = now;
-  acc += dt;
-
-  // Input tick is per-frame for pressed/released
-  // (fixed steps use same pressed data for that frame)
-  const doFrame = () => {
-    if (!gameStarted || !stage){
-      // background idle
-      ctx.clearRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
-      ctx.fillStyle = "#000"; ctx.fillRect(0,0,CONFIG.CANVAS_W, CONFIG.CANVAS_H);
-      return;
-    }
-
-    if (paused || stage.inShop || stage.finished){
-      renderGame(ctx, assets, stage.world, stage.player, stage.cam);
-      return;
-    }
-
-    // Fixed update steps
-    while (acc >= FIXED){
-      step(FIXED);
-      acc -= FIXED;
-    }
-
-    setCamera();
-    renderGame(ctx, assets, stage.world, stage.player, stage.cam);
-  };
-
-  doFrame();
-  input.tick();
   requestAnimationFrame(loop);
+
+  const rawDt = (now - last) / 1000;
+  last = now;
+  const dt = Math.min(0.033, Math.max(0, rawDt)); // clamp
+
+  // Toggle pause with ESC
+  if (state.mode === "play" && anyPressed(input, KEYS.pause)){
+    state.mode = "pause";
+    show(pauseOverlay);
+  } else if (state.mode === "pause" && anyPressed(input, KEYS.pause)){
+    state.mode = "play";
+    hide(pauseOverlay);
+  }
+
+  if (state.mode === "play"){
+    state.stageTime += dt;
+
+    // player intent
+    updatePlayer(state.player, input, dt);
+
+    // throw
+    tryThrow(state.player, input);
+
+    // gravity + physics
+    applyGravity(state.player, dt);
+
+    const solids = getSolids(state.world);
+
+    // move player
+    moveAndCollide(state.player, solids, dt);
+
+    // projectiles
+    updateProjectiles(state.player, dt);
+
+    // world interactions
+    const got = collectCoins(state.world, state.player);
+    if (got > 0){
+      state.coinsTotal += got;
+      state.stageCoins += got;
+    }
+
+    // spikes
+    const spDmg = spikeDamage(state.world, state.player);
+    if (spDmg > 0){
+      const took = hurtPlayer(state.player, spDmg, 0);
+      if (took) state.stageDamage += spDmg;
+    }
+
+    // enemies
+    updateEnemies(state.world, state.player, dt);
+    projectileHits(state.world, state.player);
+
+    const touch = enemyTouchDamage(state.world, state.player);
+    if (touch){
+      const took = hurtPlayer(state.player, touch.dmg, touch.knock);
+      if (took) state.stageDamage += touch.dmg;
+    }
+
+    // checkpoint logic
+    const hitCP = checkCheckpoint(state.world, state.player);
+    if (hitCP){
+      // FIX: unlock exit THEN open shop (but do NOT advance stage)
+      openShopNow();
+    }
+
+    // exit logic
+    if (checkExit(state.world, state.player)){
+      openResults("STAGE COMPLETE");
+    }
+
+    // death
+    if (state.player.hp <= 0){
+      const ok = confirm("You died.\nRestart run from Level 1? (Coins/upgrades reset)");
+      if (ok){
+        runDeathReset();
+      } else {
+        // if they cancel, just revive them at start with full HP
+        state.player.hp = state.player.maxHP;
+        state.player.x = 40;
+        state.player.y = CONFIG.world.floorY - state.player.h;
+      }
+    }
+  }
+
+  // Draw (always)
+  if (state.assets && state.world && state.player){
+    render(ctx, state.assets, state.world, state.player);
+  } else {
+    ctx.clearRect(0,0,CONFIG.canvas.w, CONFIG.canvas.h);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0,0,CONFIG.canvas.w, CONFIG.canvas.h);
+  }
+
+  if (state.player) updateHUD(state);
+
+  input.tick();
 }
 
-function step(dt){
-  const p = stage.player;
-  const w = stage.world;
-
-  // Update player
-  updatePlayer(p, input, w.platforms, w.hazards, dt, (dmg) => {
-    p.hp -= dmg;
-    stage.damageTaken += dmg;
-    applyHUD();
-    if (p.hp <= 0){
-      dieAndResetRun();
-    }
-  });
-
-  // Fall death (off map)
-  if (p.y > w.height){
-    dieAndResetRun();
-    return;
-  }
-
-  // Coins
-  const got = collectCoins(w, p);
-  if (got > 0){
-    stage.stageCoins += got;
-    run.coins += got;
-    applyHUD();
-  }
-
-  // Checkpoint => unlock door ONLY
-  if (touchCheckpoint(w, p)){
-    // door unlocked, do NOT open shop here
-    // (shop opens at the exit door)
-  }
-
-  // Enemies
-  updateEnemies(w, p, dt, (dmg) => {
-    p.hp -= dmg;
-    stage.damageTaken += dmg;
-    applyHUD();
-    if (p.hp <= 0){
-      dieAndResetRun();
-    }
-  });
-
-  // Exit: only after checkpoint unlocked and (if boss exists) boss dead
-  const bossBlocks = (w.bossAlive === true);
-  if (touchExit(w, p) && !bossBlocks){
-    // open shop at exit
-    openShop();
-  }
-}
-
-boot();
 requestAnimationFrame(loop);
