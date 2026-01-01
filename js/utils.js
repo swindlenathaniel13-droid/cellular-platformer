@@ -1,5 +1,6 @@
-export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-export const lerp = (a, b, t) => a + (b - a) * t;
+// js/utils.js
+export function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+export function lerp(a, b, t){ return a + (b - a) * t; }
 
 export function rectsOverlap(a, b){
   return (
@@ -10,18 +11,12 @@ export function rectsOverlap(a, b){
   );
 }
 
-export function randi(a, b){
-  return (Math.random() * (b - a + 1) + a) | 0;
-}
-
-export function randf(a, b){
-  return a + Math.random() * (b - a);
-}
-
-export function pick(arr){
-  return arr[(Math.random() * arr.length) | 0];
-}
-
-export function nowSec(){
-  return performance.now() / 1000;
+export function mulberry32(seed){
+  let t = seed >>> 0;
+  return function(){
+    t += 0x6D2B79F5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
 }
