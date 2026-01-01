@@ -1,44 +1,50 @@
-// js/input.js
-export function createInput(target = window){
+const PREVENT = new Set(["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+export function createInput(target = window) {
   const down = new Set();
   const pressed = new Set();
   const released = new Set();
 
-  function keyDown(e){
-    const code = e.code;
-    if (!down.has(code) && !e.repeat) pressed.add(code);
-    down.add(code);
-  }
-  function keyUp(e){
-    const code = e.code;
-    down.delete(code);
-    released.add(code);
+  function onKeyDown(e) {
+    if (PREVENT.has(e.code)) e.preventDefault();
+    if (!down.has(e.code)) pressed.add(e.code);
+    down.add(e.code);
   }
 
-  target.addEventListener("keydown", keyDown);
-  target.addEventListener("keyup", keyUp);
+  function onKeyUp(e) {
+    if (PREVENT.has(e.code)) e.preventDefault();
+    down.delete(e.code);
+    released.add(e.code);
+  }
+
+  target.addEventListener("keydown", onKeyDown, { passive: false });
+  target.addEventListener("keyup", onKeyUp, { passive: false });
 
   return {
-    down: (code) => down.has(code),
-    pressed: (code) => pressed.has(code),
-    released: (code) => released.has(code),
-    tick: () => { pressed.clear(); released.clear(); },
-    destroy: () => {
-      target.removeEventListener("keydown", keyDown);
-      target.removeEventListener("keyup", keyUp);
-    }
+    isDown: (code) => down.has(code),
+    wasPressed: (code) => pressed.has(code),
+    wasReleased: (code) => released.has(code),
+
+    consumePress(code) {
+      const had = pressed.has(code);
+      pressed.delete(code);
+      return had;
+    },
+
+    consumeRelease(code) {
+      const had = released.has(code);
+      released.delete(code);
+      return had;
+    },
+
+    clearFrame() {
+      pressed.clear();
+      released.clear();
+    },
+
+    destroy() {
+      target.removeEventListener("keydown", onKeyDown);
+      target.removeEventListener("keyup", onKeyUp);
+    },
   };
 }
-
-export const KEYS = {
-  left: ["ArrowLeft","KeyA"],
-  right: ["ArrowRight","KeyD"],
-  jump: ["Space"],
-  throw: ["KeyF"],
-  dash: ["ShiftLeft","ShiftRight"],
-  pause: ["Escape"]
-};
-
-export function anyDown(input, arr){ return arr.some(k => input.down(k)); }
-export function anyPressed(input, arr){ return arr.some(k => input.pressed(k)); }
-export function anyReleased(input, arr){ return arr.some(k => input.released(k)); }
