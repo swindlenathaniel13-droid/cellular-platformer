@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { rand, randi } from "./utils.js";
+import { randi } from "./utils.js";
 import { spawnEnemy } from "./enemies.js";
 
 function makePlatform(x, y, w) {
@@ -26,30 +26,35 @@ export function generateLevel(level) {
   const spikes = [];
   const enemies = [];
 
-  // Big ground
-  platforms.push(makePlatform(-200, floorY, W + 400));
+  // ✅ NO bottom/ground platform
+  // Instead: start platform
+  const startPlat = makePlatform(60, floorY - 110, 260);
+  platforms.push(startPlat);
 
-  // Platform chain (jump-doable)
-  let x = 120;
-  let y = floorY - 140;
+  // chain platforms
+  let x = startPlat.x + startPlat.w + 120;
+  let y = startPlat.y - 40;
 
-  for (let i = 0; i < 14 + level; i++) {
+  const platformCount = 14 + level;
+
+  for (let i = 0; i < platformCount; i++) {
     const w = randi(CONFIG.world.platformMinW, CONFIG.world.platformMaxW);
     const gap = randi(CONFIG.world.gapMin, CONFIG.world.gapMax);
     const dy = randi(-CONFIG.world.stepYMax, CONFIG.world.stepYMax);
 
-    x += w + gap;
+    x += gap;
     y = Math.max(140, Math.min(floorY - 110, y + dy));
 
-    platforms.push(makePlatform(x, y, w));
+    const p = makePlatform(x, y, w);
+    platforms.push(p);
 
-    // Coins above some platforms
+    // coins
     if (Math.random() < CONFIG.world.coinChance) {
       const cCount = randi(1, 3);
       for (let k = 0; k < cCount; k++) {
         coins.push({
-          x: x + randi(18, Math.max(18, w - 18)),
-          y: y - randi(28, 64),
+          x: x + randi(16, Math.max(16, w - 30)),
+          y: y - randi(26, 62),
           w: 18,
           h: 18,
           taken: false,
@@ -57,26 +62,29 @@ export function generateLevel(level) {
       }
     }
 
-    // Enemies on some platforms
+    // enemies (on top of platform)
     if (Math.random() < CONFIG.world.enemyChance) {
       const type = Math.random() < 0.35 ? 2 : 1;
-      enemies.push(spawnEnemy(type, x + randi(10, w - 50), y - 34));
+      const e = spawnEnemy(type, x + randi(14, Math.max(14, w - 60)), y - 34);
+      enemies.push(e);
     }
 
-    // Spikes mostly on ground segments
-    if (Math.random() < CONFIG.world.spikeChance) {
-      const sx = x + randi(10, w - 54);
-      const sy = floorY - 44; // on the ground top
+    // spikes (on top of platform, not on invisible ground)
+    if (Math.random() < CONFIG.world.spikeChance && w > 90) {
+      const sx = x + randi(14, Math.max(14, w - 60));
+      const sy = y - 44;
       spikes.push({ x: sx, y: sy, w: 44, h: 44 });
     }
+
+    x += w;
   }
 
-  // Ensure checkpoint + exit are on platforms
+  // place checkpoint + exit on real platforms near end
   const checkpointPlat = pickPlatformNear(platforms, W - 520);
   const exitPlat = pickPlatformNear(platforms, W - 260);
 
   const checkpoint = {
-    x: checkpointPlat.x + Math.min(checkpointPlat.w - 34, Math.max(8, checkpointPlat.w * 0.4)),
+    x: checkpointPlat.x + Math.min(checkpointPlat.w - 34, Math.max(8, checkpointPlat.w * 0.35)),
     y: checkpointPlat.y - 56,
     w: 34,
     h: 56,
@@ -84,7 +92,7 @@ export function generateLevel(level) {
   };
 
   const exit = {
-    x: exitPlat.x + Math.min(exitPlat.w - 52, Math.max(8, exitPlat.w * 0.55)),
+    x: exitPlat.x + Math.min(exitPlat.w - 52, Math.max(8, exitPlat.w * 0.60)),
     y: exitPlat.y - 72,
     w: 52,
     h: 72,
@@ -99,7 +107,12 @@ export function generateLevel(level) {
     enemies,
     checkpoint,
     exit,
-
     exitUnlocked: false,
+
+    // spawn point on the start platform
+    spawn: {
+      x: startPlat.x + 40,
+      y: startPlat.y - CONFIG.player.h,
+    },
   };
 }
