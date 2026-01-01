@@ -1,50 +1,63 @@
+// js/config.js
 export const CONFIG = {
-  ASSET_BASE: "./assets/",
-  CACHE_BUST: "v2025-12-31a",
+  canvas: {
+    w: 960,
+    h: 540
+  },
 
-  CANVAS_W: 960,
-  CANVAS_H: 540,
+  physics: {
+    gravity: 2200,
+    maxFall: 1600
+  },
 
-  GRAVITY: 1900,
-  MOVE_ACCEL: 5200,
-  MOVE_MAX: 320,
-  GROUND_FRICTION: 4200,
-  AIR_FRICTION: 900,
+  player: {
+    w: 32,
+    h: 48,
 
-  JUMP_V: 720,
-  COYOTE_TIME: 0.10,
-  JUMP_BUFFER: 0.10,
-  JUMP_CUT: 0.55, // early release reduces jump height
+    runSpeed: 260,
+    accel: 2400,
+    decel: 2600,
 
-  DASH_SPEED: 780,
-  DASH_TIME: 0.14,
-  DASH_COOLDOWN: 0.45,
+    jumpV: 860,
+    coyote: 0.10,
+    jumpBuffer: 0.10,
+    jumpCut: 0.55,      // early release reduces upward velocity
 
-  PLAYER_W: 26,
-  PLAYER_H: 40,
+    dashUnlocked: false,
+    dashSpeed: 760,
+    dashTime: 0.14,
+    dashCooldown: 0.70,
 
-  PLATFORM_H: 36,
+    throwCooldown: 0.35,
 
-  // Level gen safety: keep gaps reachable
-  MAX_GAP: 170,       // horizontal gap between platform edges
-  MAX_RISE: 110,      // max upward step between platforms
-  MIN_PLATFORM_W: 160,
-  MAX_PLATFORM_W: 320,
+    maxHP: 10,
+    invulnTime: 0.65,
+  },
 
-  SPIKE_W: 48,
-  SPIKE_H: 32,
-  SPIKE_DAMAGE: 1,
+  world: {
+    floorY: 480,
+    levelLen: 3400,
 
-  ENEMY_W: 30,
-  ENEMY_H: 30,
-  ENEMY_SPEED: 120,
-  ENEMY_CHASE_SPEED: 165,
-  ENEMY_DETECT_X: 250,
-  ENEMY_DAMAGE: 1,
+    // Keep jumps doable
+    maxGap: 150,
+    maxRise: 120,
 
-  BOSS_EVERY: 5,
-  BOSS_HP_BASE: 12,
+    platformH: 28,
 
-  START_HP: 10,
-  MAX_HP_CAP: 15
+    spikeChance: 0.22,
+    spikeDamage: 2,
+
+    enemyChance: 0.45,
+  },
+
+  combat: {
+    projSpeed: 620,
+    projLife: 0.9,
+    projDamage: 1,
+    enemyTouchDamage: 1
+  },
+
+  debug: {
+    showHitboxes: false
+  }
 };
