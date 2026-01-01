@@ -1,31 +1,28 @@
 :root{
-  --bg1:#071225;
-  --bg2:#03060f;
-  --panel:#0a1730;
-  --panel2:#071126;
-  --stroke:rgba(255,255,255,.10);
-  --stroke2:rgba(255,255,255,.06);
-  --txt:#e7f0ff;
-  --dim:rgba(231,240,255,.65);
-  --warn:#ffb74d;
-  --danger:#ff5a5a;
+  --bg1:#061024;
+  --bg2:#040915;
+  --panel:#0b1b3a;
+  --panel2:#08142c;
+  --text:#dbe7ff;
+  --dim:#9db3e8;
+  --line:rgba(255,255,255,.08);
+  --shadow:rgba(0,0,0,.55);
+  --warn:#ffcc66;
+  --bad:#ff6b6b;
 }
 
-*{box-sizing:border-box}
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
 body{
   margin:0;
-  min-height:100vh;
-  background:radial-gradient(1200px 700px at 50% 30%, #0a2a5d 0%, var(--bg1) 40%, var(--bg2) 100%);
-  color:var(--txt);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:18px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: radial-gradient(ellipse at top, #0a2a6a 0%, var(--bg1) 45%, var(--bg2) 100%);
+  color:var(--text);
 }
 
-.frame{
+.shell{
   width:min(1100px, 96vw);
+  margin: 18px auto;
 }
 
 .topbar{
@@ -33,54 +30,41 @@ body{
   justify-content:space-between;
   align-items:center;
   padding:14px 18px;
-  border:1px solid var(--stroke);
-  background:linear-gradient(180deg, rgba(10,25,56,.92), rgba(6,14,34,.92));
-  border-radius:18px;
-  box-shadow:0 18px 70px rgba(0,0,0,.45);
+  border-radius:14px;
+  background: linear-gradient(180deg, rgba(13,35,82,.95), rgba(8,20,44,.92));
+  border:1px solid var(--line);
+  box-shadow: 0 16px 40px var(--shadow);
 }
+
 .title{
-  font-family:"Press Start 2P", monospace;
-  letter-spacing:1px;
-  font-size:18px;
+  font-family: "Press Start 2P", monospace;
+  font-size: 18px;
+  letter-spacing: 1px;
 }
-.help{
+
+.keys{
   font-size:12px;
   color:var(--dim);
   text-align:right;
 }
 
-.screen{
-  margin-top:14px;
+.stage{
   position:relative;
+  margin-top:12px;
   border-radius:18px;
   overflow:hidden;
-  border:1px solid var(--stroke);
+  border:1px solid var(--line);
   background:#000;
-  box-shadow:0 18px 70px rgba(0,0,0,.55);
-}
-canvas{
-  display:block;
-  width:100%;
-  height:auto;
-  image-rendering: pixelated;
+  box-shadow: 0 30px 70px var(--shadow);
 }
 
-.hud{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  margin-top:12px;
-  align-items:center;
-  justify-content:flex-start;
+#game{
+  width:100%;
+  height:auto;
+  display:block;
+  image-rendering: pixelated;
+  background:#000;
 }
-.chip{
-  border:1px solid var(--stroke2);
-  background:rgba(4,10,24,.55);
-  padding:10px 12px;
-  border-radius:999px;
-  font-size:12px;
-}
-.dim{color:var(--dim)}
 
 .overlay{
   position:absolute;
@@ -88,150 +72,178 @@ canvas{
   display:none;
   align-items:center;
   justify-content:center;
-  background:rgba(0,0,0,.55);
-  backdrop-filter: blur(3px);
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
 }
+
 .overlay--show{ display:flex; }
 
-.panel{
-  width:min(520px, 92%);
-  border:1px solid var(--stroke);
-  background:linear-gradient(180deg, rgba(11,25,56,.95), rgba(6,14,34,.95));
-  border-radius:16px;
+.card{
+  width:min(560px, 92vw);
   padding:18px;
-  box-shadow:0 20px 90px rgba(0,0,0,.65);
+  border-radius:16px;
+  background: linear-gradient(180deg, rgba(12,28,58,.95), rgba(7,16,35,.95));
+  border:1px solid var(--line);
+  box-shadow: 0 30px 70px var(--shadow);
 }
-.panelWide{ width:min(740px, 94%); }
 
-.panelTitle{
+.cardWide{ width:min(820px, 92vw); }
+
+.cardTitle{
   font-family:"Press Start 2P", monospace;
   font-size:16px;
   margin-bottom:10px;
 }
-.panelSub{
+
+.cardSub{
   font-size:12px;
   color:var(--dim);
   margin-bottom:12px;
 }
-.warn{
-  white-space:pre-wrap;
-  color:var(--warn);
-  border:1px solid rgba(255,183,77,.25);
-  background:rgba(255,183,77,.08);
-  padding:10px;
-  border-radius:12px;
-  margin:10px 0;
-  font-size:12px;
-}
-.warnText{ color: var(--warn); }
 
-.barOuter{
-  width:100%;
-  height:12px;
-  border:1px solid var(--stroke2);
-  background:rgba(0,0,0,.25);
+.progressWrap{ margin: 10px 0 12px; }
+.progressTrack{
+  height:10px;
+  background: rgba(255,255,255,.07);
+  border:1px solid var(--line);
   border-radius:999px;
   overflow:hidden;
 }
-.barInner{
+.progressBar{
   height:100%;
-  width:0%;
-  background:linear-gradient(90deg, rgba(110,190,255,.85), rgba(180,255,220,.85));
+  background: linear-gradient(90deg, #2b7cff, #58d6ff);
+}
+
+.progressMeta{
+  display:flex;
+  justify-content:space-between;
+  margin-top:8px;
+  font-size:11px;
+  color:var(--dim);
+}
+
+.warn{
+  white-space:pre-wrap;
+  margin:12px 0;
+  padding:10px;
+  border-radius:12px;
+  background: rgba(255, 80, 80, .12);
+  border:1px solid rgba(255, 80, 80, .22);
+  color:#ffd2d2;
+  font-size:12px;
+  line-height:1.35;
+}
+
+.btn{
+  width:100%;
+  padding:12px 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.06);
+  color:var(--text);
+  font-family:"Press Start 2P", monospace;
+  font-size:12px;
+  cursor:pointer;
+}
+
+.btn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+
+.btnWarn{
+  border-color: rgba(255,107,107,.35);
+  background: rgba(255,107,107,.12);
+}
+
+.hint{
+  margin-top:10px;
+  font-size:11px;
+  color:var(--dim);
 }
 
 .row{
   display:flex;
   gap:10px;
-  align-items:center;
-  margin-top:10px;
-  margin-bottom:12px;
-}
-.pct{ font-family:"Press Start 2P", monospace; font-size:11px; }
-.file{ color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
-
-.btn{
-  width:100%;
-  padding:12px 14px;
-  border-radius:12px;
-  border:1px solid var(--stroke);
-  background:rgba(10,25,56,.7);
-  color:var(--txt);
-  font-family:"Press Start 2P", monospace;
-  font-size:12px;
-  cursor:pointer;
-}
-.btn:disabled{
-  opacity:.45;
-  cursor:not-allowed;
-}
-.btn:hover:not(:disabled){
-  filter:brightness(1.1);
-}
-.danger{
-  border-color:rgba(255,90,90,.35);
-  background:rgba(255,90,90,.12);
+  margin-top:12px;
 }
 
-.foot{ margin-top:10px; font-size:11px; color:var(--dim); }
+.row .btn{ width:auto; flex:1; }
 
 .charGrid{
   display:grid;
   grid-template-columns: repeat(2, minmax(0,1fr));
   gap:12px;
-  margin:14px 0;
 }
+
 .charBtn{
   display:flex;
   gap:12px;
-  align-items:center;
-  border:1px solid var(--stroke2);
-  background:rgba(0,0,0,.18);
-  border-radius:14px;
   padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.04);
   cursor:pointer;
-}
-.charBtn img{
-  width:52px; height:52px;
-  image-rendering:pixelated;
-}
-.charBtn.active{
-  outline:2px solid rgba(110,190,255,.55);
-  background:rgba(110,190,255,.10);
-}
-
-.shopList{
-  display:grid;
-  gap:10px;
-  margin:10px 0 14px;
-}
-.shopItem{
-  border:1px solid var(--stroke2);
-  background:rgba(0,0,0,.18);
-  border-radius:14px;
-  padding:12px;
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
   align-items:center;
 }
-.shopItem b{font-family:"Press Start 2P", monospace; font-size:11px;}
-.shopItem .desc{ font-size:12px; color:var(--dim); margin-top:6px; }
-.shopItem .right{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  align-items:flex-end;
-}
-.shopItem .cost{ font-family:"Press Start 2P", monospace; font-size:11px; color:rgba(180,255,220,.9); }
 
-.stats{
-  font-size:12px;
-  color:var(--txt);
-  line-height:1.7;
-  background:rgba(0,0,0,.18);
-  border:1px solid var(--stroke2);
+.charBtn img{
+  width:48px;
+  height:48px;
+  image-rendering: pixelated;
+}
+
+.charBtn.active{
+  outline:2px solid rgba(88,214,255,.8);
+}
+
+.shopGrid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap:12px;
+}
+
+.shopItem{
+  border:1px solid var(--line);
   border-radius:14px;
   padding:12px;
-  margin:12px 0;
+  background: rgba(255,255,255,.04);
 }
 
+.shopItem .name{
+  font-family:"Press Start 2P", monospace;
+  font-size:11px;
+  margin-bottom:6px;
+}
+.shopItem .desc{ font-size:12px; color:var(--dim); margin-bottom:10px; }
+.shopItem .buyRow{ display:flex; gap:10px; align-items:center; justify-content:space-between; }
+.shopItem .cost{ font-family:"Press Start 2P", monospace; font-size:11px; }
+
+.hudbar{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:12px;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.22);
+}
+
+.pill{
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  font-family:"Press Start 2P", monospace;
+  font-size:11px;
+}
+
+.pill.right{ margin-left:auto; }
+
+.footerNote{
+  margin-top:10px;
+  text-align:center;
+  color:var(--dim);
+  font-size:12px;
+}
