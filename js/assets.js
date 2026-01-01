@@ -6,6 +6,9 @@ const FILES = {
   coin: "Coin.png",
   spike: "Spike.png",
 
+  // weapon icon projectile
+  phone: "powerup_homephone.png",
+
   enemy1: "Enemy1.png",
   enemy2: "Enemy2.png",
 
@@ -17,7 +20,7 @@ const FILES = {
 };
 
 function assetBase() {
-  // robust on GitHub Pages subpaths
+  // robust under GitHub Pages subpaths
   return new URL("../assets/", import.meta.url).toString();
 }
 
