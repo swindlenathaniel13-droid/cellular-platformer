@@ -1,41 +1,37 @@
-// js/physics.js
 import { rectsOverlap } from "./utils.js";
+import { CONFIG } from "./config.js";
 
-function resolveAxis(body, solids, axis){
-  for (const s of solids){
-    if (!rectsOverlap(body, s)) continue;
+export function moveAndCollide(body, solids, dt) {
+  const steps = Math.min(CONFIG.dev.maxSubSteps, Math.max(1, Math.ceil(dt / CONFIG.dev.fixedDt)));
+  const stepDt = dt / steps;
 
-    if (axis === "x"){
+  body.onGround = false;
+  body.hitCeil = false;
+
+  for (let i = 0; i < steps; i++) {
+    // X axis
+    body.x += body.vx * stepDt;
+    for (const s of solids) {
+      if (!rectsOverlap(body, s)) continue;
       if (body.vx > 0) body.x = s.x - body.w;
       else if (body.vx < 0) body.x = s.x + s.w;
       body.vx = 0;
-    } else {
-      if (body.vy > 0){
+    }
+
+    // Y axis
+    body.y += body.vy * stepDt;
+    for (const s of solids) {
+      if (!rectsOverlap(body, s)) continue;
+
+      if (body.vy > 0) {
         body.y = s.y - body.h;
         body.vy = 0;
         body.onGround = true;
-      } else if (body.vy < 0){
+      } else if (body.vy < 0) {
         body.y = s.y + s.h;
         body.vy = 0;
+        body.hitCeil = true;
       }
     }
-  }
-}
-
-export function moveAndCollide(body, solids, dt){
-  body.onGround = false;
-
-  const dx = body.vx * dt;
-  const dy = body.vy * dt;
-
-  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 8));
-  const stepDt = dt / steps;
-
-  for (let i=0;i<steps;i++){
-    body.x += body.vx * stepDt;
-    resolveAxis(body, solids, "x");
-
-    body.y += body.vy * stepDt;
-    resolveAxis(body, solids, "y");
   }
 }
