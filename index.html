@@ -4,96 +4,117 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Cellular Platformer</title>
-  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Pixel font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-</head>
-<body>
-  <div class="frame">
-    <div class="topbar">
-      <div class="title">CELLULAR PLATFORMER</div>
-      <div class="help">Move: ←/→ or A/D · Jump: Space · Dash: Shift · Pause: Esc</div>
-    </div>
 
-    <div class="screen">
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="title">CELLULAR PLATFORMER</div>
+      <div class="keys">Move: ←/→ or A/D · Jump: Space · Throw: F · Dash: Shift · Pause: Esc</div>
+    </header>
+
+    <div class="stage">
       <canvas id="game" width="960" height="540"></canvas>
 
-      <!-- BOOT -->
+      <!-- BOOT OVERLAY -->
       <div id="bootOverlay" class="overlay overlay--show">
-        <div class="panel">
-          <div class="panelTitle">CELLULAR PLATFORMER</div>
-          <div id="bootSub" class="panelSub">Loading…</div>
-          <div class="barOuter"><div id="bootBar" class="barInner"></div></div>
-          <div class="row">
-            <div id="bootText" class="pct">0%</div>
-            <div id="bootFile" class="file">—</div>
+        <div class="card">
+          <div class="cardTitle">CELLULAR PLATFORMER</div>
+          <div id="bootSub" class="cardSub">Waiting for JavaScript…</div>
+
+          <div class="progressWrap">
+            <div class="progressTrack">
+              <div id="bootBar" class="progressBar" style="width:0%"></div>
+            </div>
+            <div class="progressMeta">
+              <div id="bootText">0%</div>
+              <div id="bootFile">—</div>
+            </div>
           </div>
-          <div id="bootWarn" class="warn" style="display:none"></div>
+
+          <pre id="bootWarn" class="warn" style="display:none"></pre>
+
           <button id="bootStartBtn" class="btn" disabled>START</button>
-          <div class="foot">Assets must be in <b>/assets</b>.</div>
+          <div class="hint">Assets must be in <b>/assets</b>.</div>
         </div>
       </div>
 
-      <!-- CHARACTER SELECT -->
+      <!-- CHARACTER OVERLAY -->
       <div id="charOverlay" class="overlay">
-        <div class="panel panelWide">
-          <div class="panelTitle">CHOOSE YOUR CHARACTER</div>
-          <div class="panelSub dim">Tutorial runs once on Level 1.</div>
+        <div class="card cardWide">
+          <div class="cardTitle">CHOOSE YOUR CHARACTER</div>
+          <div class="cardSub">Tutorial runs once on Level 1.</div>
+
           <div id="charGrid" class="charGrid"></div>
-          <button id="charStartBtn" class="btn" disabled>PLAY</button>
+
+          <div class="row">
+            <button id="charStartBtn" class="btn" disabled>PLAY</button>
+          </div>
         </div>
       </div>
 
-      <!-- PAUSE -->
+      <!-- PAUSE OVERLAY -->
       <div id="pauseOverlay" class="overlay">
-        <div class="panel">
-          <div class="panelTitle">PAUSED</div>
-          <button id="pauseResumeBtn" class="btn">RESUME</button>
-          <button id="pauseRestartRunBtn" class="btn danger">RESTART RUN (LOSE UPGRADES)</button>
+        <div class="card">
+          <div class="cardTitle">PAUSED</div>
+          <div class="cardSub">Esc to resume</div>
+          <div class="row">
+            <button id="pauseResumeBtn" class="btn">RESUME</button>
+            <button id="pauseRestartBtn" class="btn btnWarn">RESTART LEVEL</button>
+          </div>
+          <div class="hint">Restart Level resets the level + refunds shop purchases made this level.</div>
         </div>
       </div>
 
-      <!-- SHOP -->
+      <!-- SHOP OVERLAY -->
       <div id="shopOverlay" class="overlay">
-        <div class="panel panelWide">
-          <div class="panelTitle">SHOP</div>
-          <div id="shopCoins" class="panelSub">Coins: 0</div>
-          <div id="shopList" class="shopList"></div>
-          <button id="shopContinueBtn" class="btn">CONTINUE</button>
-          <div class="panelSub dim">Shop opens at the Exit Door after you touch the Checkpoint Flag.</div>
+        <div class="card cardWide">
+          <div class="cardTitle">SHOP</div>
+          <div id="shopSub" class="cardSub">Spend coins. Exit is unlocked.</div>
+          <div id="shopItems" class="shopGrid"></div>
+          <div class="row">
+            <button id="shopCloseBtn" class="btn">CLOSE</button>
+          </div>
         </div>
       </div>
 
-      <!-- STAGE COMPLETE -->
-      <div id="stageOverlay" class="overlay">
-        <div class="panel panelWide">
-          <div class="panelTitle">STAGE COMPLETE</div>
-          <div id="stageStats" class="stats"></div>
-          <button id="stageContinueBtn" class="btn">NEXT STAGE</button>
+      <!-- RESULTS OVERLAY -->
+      <div id="resultsOverlay" class="overlay">
+        <div class="card">
+          <div id="resTitle" class="cardTitle">STAGE COMPLETE</div>
+          <div class="stats">
+            <div>Coins collected: <b id="resCoins">0</b></div>
+            <div>Damage taken: <b id="resDamage">0</b></div>
+            <div>Time: <b id="resTime">0.0s</b></div>
+          </div>
+          <div class="row">
+            <button id="resContinueBtn" class="btn">CONTINUE</button>
+          </div>
         </div>
       </div>
 
-      <!-- DEATH -->
-      <div id="deathOverlay" class="overlay">
-        <div class="panel">
-          <div class="panelTitle">YOU DIED</div>
-          <div class="panelSub warnText">This resets your run (coins + shop upgrades).</div>
-          <button id="deathRestartBtn" class="btn danger">RESTART RUN</button>
-        </div>
-      </div>
     </div>
 
-    <div class="hud">
-      <div class="chip" id="hudLevel">Level: 1</div>
-      <div class="chip" id="hudCoins">Coins: 0</div>
-      <div class="chip" id="hudDash">Dash: Locked</div>
-      <div class="chip" id="hudSpeed">Speed: Normal</div>
-      <div class="chip" id="hudHP">HP: 10/10</div>
-      <div class="chip dim">Made with HTML Canvas · Hosted on GitHub Pages</div>
-    </div>
+    <footer class="hudbar">
+      <div class="pill" id="hudLevel">Level: 1</div>
+      <div class="pill" id="hudCoins">Coins: 0</div>
+      <div class="pill" id="hudDash">Dash: Locked</div>
+      <div class="pill" id="hudSpeed">Speed: Normal</div>
+      <div class="pill" id="hudThrow">Throw: Ready</div>
+      <div class="pill right" id="hudHP">HP: 10/10</div>
+    </footer>
+
+    <div class="footerNote">Made with HTML Canvas · Hosted on GitHub Pages</div>
   </div>
 
+  <!-- IMPORTANT: must be ./js/main.js (NOT /main.js) -->
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>
