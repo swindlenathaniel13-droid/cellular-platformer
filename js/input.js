@@ -1,19 +1,28 @@
 export function createInput(){
-  const keys = new Map();
+  const keys = new Set();
   const pressed = new Set();
+  const released = new Set();
+
+  function down(e){
+    if (!keys.has(e.code)) pressed.add(e.code);
+    keys.add(e.code);
+  }
+  function up(e){
+    keys.delete(e.code);
+    released.add(e.code);
+  }
 
   window.addEventListener("keydown", (e) => {
-    if (!keys.get(e.code)) pressed.add(e.code);
-    keys.set(e.code, true);
-  });
+    if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Space"].includes(e.code)) e.preventDefault();
+    down(e);
+  }, { passive:false });
 
-  window.addEventListener("keyup", (e) => {
-    keys.set(e.code, false);
-  });
+  window.addEventListener("keyup", up);
 
   return {
-    down(code){ return !!keys.get(code); },
-    wasPressed(code){ return pressed.has(code); },
-    endFrame(){ pressed.clear(); }
+    isDown: (code) => keys.has(code),
+    wasPressed: (code) => pressed.has(code),
+    wasReleased: (code) => released.has(code),
+    tick: () => { pressed.clear(); released.clear(); }
   };
 }
