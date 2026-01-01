@@ -1,123 +1,108 @@
 import { CONFIG } from "./config.js";
 import { clamp } from "./utils.js";
+import { moveAndCollide } from "./physics.js";
 
-export function createPlayer(charKey){
+export function createPlayer(x, y, charKey){
   return {
-    kind: "player",
-    charKey,
-    x: 90,
-    y: 100,
+    x, y,
     w: CONFIG.PLAYER_W,
     h: CONFIG.PLAYER_H,
-    vx: 0,
-    vy: 0,
+    vx: 0, vy: 0,
     onGround: false,
     facing: 1,
 
-    hpMax: CONFIG.HP_START,
-    hp: CONFIG.HP_START,
+    hp: CONFIG.START_HP,
+    maxHP: CONFIG.START_HP,
+
+    coyote: 0,
+    jumpBuf: 0,
 
     dashUnlocked: false,
-    dashT: 0,
-    dashCd: 0,
+    dashTime: 0,
+    dashCD: 0,
 
-    throwCd: 0,
-
-    // jump helpers
-    coyote: 0,
-    jumpBuffer: 0,
-
-    // stats
-    coins: 0,
-    stageCoins: 0,
-    stageDamage: 0,
-    stageTime: 0,
-
-    // shop effects (reset on restart/death)
     speedMult: 1.0,
-    throwMult: 1.0,
-    shieldHits: 0,
-    magnet: 0,
 
-    // visuals
-    animT: 0,
-    hurtT: 0,
+    charKey
   };
 }
 
-export function applyShopReset(p){
-  p.speedMult = 1.0;
-  p.throwMult = 1.0;
-  p.shieldHits = 0;
-  p.magnet = 0;
-  // keep dashUnlocked? (shop item)
-  // we reset everything from shop, so:
-  p.dashUnlocked = false;
-}
-
-export function takeDamage(p, amt){
-  if(p.shieldHits > 0){
-    p.shieldHits--;
-    p.hurtT = 0.2;
-    return;
-  }
-  p.hp = Math.max(0, p.hp - amt);
-  p.stageDamage += amt;
-  p.hurtT = 0.35;
-}
-
-export function updatePlayer(p, input, dt){
-  p.animT += dt;
-  if (p.hurtT > 0) p.hurtT -= dt;
-
-  const speed = CONFIG.PLAYER_SPEED * p.speedMult;
-
-  // timers
-  p.dashCd = Math.max(0, p.dashCd - dt);
-  p.throwCd = Math.max(0, p.throwCd - dt);
-
-  // coyote + jump buffer
+export function updatePlayer(p, input, solids, hazards, dt, onDamage){
+  // Timers
   p.coyote = p.onGround ? CONFIG.COYOTE_TIME : Math.max(0, p.coyote - dt);
-  p.jumpBuffer = input.jumpPressed() ? CONFIG.JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
+  p.jumpBuf = Math.max(0, p.jumpBuf - dt);
+  p.dashCD = Math.max(0, p.dashCD - dt);
+  p.dashTime = Math.max(0, p.dashTime - dt);
 
-  // dash
-  if (p.dashT > 0){
-    p.dashT = Math.max(0, p.dashT - dt);
-    // during dash we keep vx as set
-  } else {
-    // horizontal input
-    let ax = 0;
-    if (input.left()) ax -= 1;
-    if (input.right()) ax += 1;
+  const left = input.isDown("ArrowLeft") || input.isDown("KeyA");
+  const right = input.isDown("ArrowRight") || input.isDown("KeyD");
+  const wantJump = input.wasPressed("Space");
+  const jumpUp = input.wasReleased("Space");
+  const wantDash = input.wasPressed("ShiftLeft") || input.wasPressed("ShiftRight");
 
-    if (ax !== 0) p.facing = ax;
+  if (wantJump) p.jumpBuf = CONFIG.JUMP_BUFFER;
 
-    // acceleration-ish
-    const targetVx = ax * speed;
-    p.vx = targetVx;
+  // Facing
+  if (left) p.facing = -1;
+  if (right) p.facing = 1;
 
-    // jump
-    if (p.jumpBuffer > 0 && p.coyote > 0){
-      p.vy = -CONFIG.PLAYER_JUMP;
-      p.jumpBuffer = 0;
-      p.coyote = 0;
-    }
-
-    // variable jump (release early)
-    if (!input.jumpHeld() && p.vy < 0){
-      p.vy *= 0.82;
-    }
-
-    // dash trigger
-    if (p.dashUnlocked && input.dashPressed() && p.dashCd <= 0){
-      p.dashT = CONFIG.DASH_TIME;
-      p.dashCd = CONFIG.DASH_COOLDOWN;
-      p.vx = p.facing * CONFIG.DASH_SPEED;
-      // little hop to feel snappy
-      p.vy *= 0.25;
-    }
+  // Dash
+  if (p.dashUnlocked && wantDash && p.dashCD <= 0 && p.dashTime <= 0){
+    p.dashTime = CONFIG.DASH_TIME;
+    p.dashCD = CONFIG.DASH_COOLDOWN;
+    p.vy *= 0.15; // keep it snappy
   }
 
-  // gravity
-  p.vy = clamp(p.vy + CONFIG.GRAVITY * dt, -99999, CONFIG.MAX_FALL);
+  const accel = CONFIG.MOVE_ACCEL * p.speedMult;
+  const max = CONFIG.MOVE_MAX * p.speedMult;
+
+  // Horizontal control
+  if (p.dashTime > 0){
+    p.vx = p.facing * CONFIG.DASH_SPEED;
+  } else {
+    if (left && !right) p.vx -= accel * dt;
+    else if (right && !left) p.vx += accel * dt;
+    else {
+      // friction
+      const fr = (p.onGround ? CONFIG.GROUND_FRICTION : CONFIG.AIR_FRICTION) * dt;
+      if (p.vx > 0) p.vx = Math.max(0, p.vx - fr);
+      else if (p.vx < 0) p.vx = Math.min(0, p.vx + fr);
+    }
+    p.vx = clamp(p.vx, -max, max);
+  }
+
+  // Gravity
+  p.vy += CONFIG.GRAVITY * dt;
+
+  // Jump (buffer + coyote)
+  if (p.jumpBuf > 0 && (p.onGround || p.coyote > 0)){
+    p.jumpBuf = 0;
+    p.vy = -CONFIG.JUMP_V;
+    p.onGround = false;
+    p.coyote = 0;
+  }
+
+  // Variable jump height
+  if (jumpUp && p.vy < 0){
+    p.vy *= CONFIG.JUMP_CUT;
+  }
+
+  // Move + collide
+  moveAndCollide(p, solids, dt);
+
+  // Hazard damage
+  for (const h of hazards){
+    if (
+      p.x < h.x + h.w &&
+      p.x + p.w > h.x &&
+      p.y < h.y + h.h &&
+      p.y + p.h > h.y
+    ){
+      onDamage?.(h.damage ?? 1);
+      // knockback
+      p.vy = Math.min(p.vy, 240);
+      p.vx += (p.x + p.w/2 < h.x + h.w/2 ? -120 : 120);
+      break;
+    }
+  }
 }
