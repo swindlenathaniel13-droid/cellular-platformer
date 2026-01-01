@@ -1,41 +1,28 @@
-import { aabb } from "./utils.js";
+import { rectsOverlap } from "./utils.js";
 
-export function moveAndCollide(body, solids, dt){
-  // Substep to prevent tunneling on slow frames
-  const maxStep = 1/120;
-  let t = dt;
+export function moveAndCollide(entity, solids, dt){
+  // Move X
+  entity.x += entity.vx * dt;
+  for (const s of solids){
+    if (!rectsOverlap(entity, s)) continue;
+    if (entity.vx > 0) entity.x = s.x - entity.w;
+    else if (entity.vx < 0) entity.x = s.x + s.w;
+    entity.vx = 0;
+  }
 
-  while (t > 0){
-    const step = Math.min(maxStep, t);
-    t -= step;
+  // Move Y
+  entity.y += entity.vy * dt;
+  entity.onGround = false;
 
-    body.vy += body.gravity * step;
-
-    // X
-    body.x += body.vx * step;
-    for (const p of solids){
-      if (aabb(body.x, body.y, body.w, body.h, p.x, p.y, p.w, p.h)){
-        if (body.vx > 0) body.x = p.x - body.w;
-        else if (body.vx < 0) body.x = p.x + p.w;
-        body.vx = 0;
-      }
-    }
-
-    // Y
-    body.y += body.vy * step;
-    body.onGround = false;
-
-    for (const p of solids){
-      if (aabb(body.x, body.y, body.w, body.h, p.x, p.y, p.w, p.h)){
-        if (body.vy > 0){
-          body.y = p.y - body.h;
-          body.vy = 0;
-          body.onGround = true;
-        } else if (body.vy < 0){
-          body.y = p.y + p.h;
-          body.vy = 0;
-        }
-      }
+  for (const s of solids){
+    if (!rectsOverlap(entity, s)) continue;
+    if (entity.vy > 0){
+      entity.y = s.y - entity.h;
+      entity.vy = 0;
+      entity.onGround = true;
+    } else if (entity.vy < 0){
+      entity.y = s.y + s.h;
+      entity.vy = 0;
     }
   }
 }
