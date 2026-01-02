@@ -1,120 +1,128 @@
+// js/render.js
 import { CONFIG } from "./config.js";
 
-function R(v){ return Math.round(v); }
-
-function tileHoriz(ctx, img, x, y, w, h) {
-  const iw = img.width || 64;
-  const step = iw;
-  for (let px = 0; px < w; px += step) {
-    ctx.drawImage(img, R(x + px), R(y), Math.min(iw, w - px), h);
-  }
+function drawSprite(ctx, img, x, y, w, h){
+  ctx.drawImage(img, x, y, w, h);
 }
 
-function drawSprite(ctx, img, x, y, w, h, flip=false) {
-  const rx = R(x), ry = R(y);
-  if (!img) {
-    ctx.fillRect(rx, ry, w, h);
+function drawChar(ctx, img, p, tMs){
+  if (!img){
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(p.x, p.y, p.w, p.h);
     return;
   }
-  if (!flip) {
-    ctx.drawImage(img, rx, ry, w, h);
+
+  // Assume 4-frame horizontal sprite sheet (fallback to single frame)
+  const frames = 4;
+  const fw = Math.floor(img.width / frames);
+  const fh = img.height;
+
+  let frame = 0;
+  const moving = Math.abs(p.vx) > 20;
+
+  if (!p.onGround) frame = 2;
+  else if (moving) frame = Math.floor((tMs / 90) % frames);
+  else frame = 0;
+
+  // if it’s not actually a sheet, fw may be wrong; safeguard:
+  const useSheet = fw > 0 && fw * frames === img.width;
+
+  if (!useSheet){
+    ctx.drawImage(img, p.x, p.y, p.w, p.h);
     return;
   }
-  ctx.save();
-  ctx.translate(rx + w, ry);
-  ctx.scale(-1, 1);
-  ctx.drawImage(img, 0, 0, w, h);
-  ctx.restore();
+
+  ctx.drawImage(img, frame * fw, 0, fw, fh, p.x, p.y, p.w, p.h);
 }
 
-export function drawGame(ctx, state) {
-  const { assets, world, player, camX, camY } = state;
+export function drawGame(ctx, state, tMs){
+  const { assets, camX, camY } = state;
 
-  ctx.clearRect(0, 0, CONFIG.canvas.w, CONFIG.canvas.h);
-  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0,0,CONFIG.canvas.w,CONFIG.canvas.h);
 
   // background
-  if (assets.bg) {
-    const bx = -camX * 0.25;
-    ctx.drawImage(assets.bg, R(bx), 0, assets.bg.width, CONFIG.canvas.h);
+  if (assets.bg){
+    ctx.drawImage(assets.bg, -camX * 0.12, -camY * 0.06, assets.bg.width, assets.bg.height);
   } else {
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, CONFIG.canvas.w, CONFIG.canvas.h);
+    ctx.fillRect(0,0,CONFIG.canvas.w,CONFIG.canvas.h);
   }
 
   ctx.save();
-  ctx.translate(-R(camX), -R(camY));
+  ctx.translate(-camX, -camY);
 
   // platforms
-  for (const p of world.platforms) {
-    if (assets.platform) {
-      tileHoriz(ctx, assets.platform, p.x, p.y, p.w, p.h);
+  for (const p of state.platforms){
+    if (assets.platform){
+      // tile platform image across width
+      const tileW = assets.platform.width;
+      const tileH = assets.platform.height;
+      for (let x = p.x; x < p.x + p.w; x += tileW){
+        ctx.drawImage(assets.platform, x, p.y, Math.min(tileW, p.x + p.w - x), p.h);
+      }
     } else {
-      ctx.fillStyle = "#234";
-      ctx.fillRect(R(p.x), R(p.y), p.w, p.h);
+      ctx.fillStyle = "#2a8";
+      ctx.fillRect(p.x, p.y, p.w, p.h);
     }
   }
 
   // coins
-  for (const c of world.coins) {
-    if (c.taken) continue;
-    if (assets.coin) ctx.drawImage(assets.coin, R(c.x), R(c.y), c.w, c.h);
-    else { ctx.fillStyle = "gold"; ctx.fillRect(R(c.x), R(c.y), c.w, c.h); }
+  for (const c of state.coins){
+    if (c.collected) continue;
+    if (assets.coin){
+      ctx.drawImage(assets.coin, c.x - 12, c.y - 12, 24, 24);
+    } else {
+      ctx.fillStyle = "#fc0";
+      ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI*2); ctx.fill();
+    }
   }
 
   // spikes
-  for (const s of world.spikes) {
-    if (assets.spike) ctx.drawImage(assets.spike, R(s.x), R(s.y), CONFIG.spike.drawW, CONFIG.spike.drawH);
-    else { ctx.fillStyle="#c33"; ctx.fillRect(R(s.x), R(s.y), s.w, s.h); }
+  for (const s of state.spikes){
+    if (assets.spike){
+      ctx.drawImage(assets.spike, s.x, s.y, CONFIG.spike.drawW, CONFIG.spike.drawH);
+    } else {
+      ctx.fillStyle = "#f55";
+      ctx.fillRect(s.x, s.y, s.w, s.h);
+    }
   }
 
   // checkpoint
-  drawSprite(ctx, assets.flag, world.checkpoint.x, world.checkpoint.y, world.checkpoint.w, world.checkpoint.h, false);
+  if (assets.flag){
+    ctx.drawImage(assets.flag, state.checkpoint.x, state.checkpoint.y, state.checkpoint.w, state.checkpoint.h);
+  }
 
-  // exit door (dim if locked)
-  if (assets.door) {
-    if (!world.exitUnlocked) {
-      ctx.globalAlpha = 0.55;
-      ctx.drawImage(assets.door, R(world.exit.x), R(world.exit.y), world.exit.w, world.exit.h);
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.drawImage(assets.door, R(world.exit.x), R(world.exit.y), world.exit.w, world.exit.h);
-    }
-  } else {
-    ctx.fillStyle = world.exitUnlocked ? "#7f7" : "#777";
-    ctx.fillRect(R(world.exit.x), R(world.exit.y), world.exit.w, world.exit.h);
+  // door
+  if (assets.door){
+    ctx.globalAlpha = state.door.open ? 1 : 0.55;
+    ctx.drawImage(assets.door, state.door.x, state.door.y, state.door.w, state.door.h);
+    ctx.globalAlpha = 1;
   }
 
   // enemies
-  for (const e of world.enemies) {
-    const img = e.type === 2 ? assets.enemy2 : assets.enemy1;
-    const flip = e.vx < 0;
-    if (img) drawSprite(ctx, img, e.x, e.y, e.w, e.h, flip);
-    else { ctx.fillStyle="#f55"; ctx.fillRect(R(e.x), R(e.y), e.w, e.h); }
-  }
-
-  // player bullets (phone icon)
-  for (const b of state.bullets) {
-    if (assets.phone) {
-      const flip = b.vx < 0;
-      drawSprite(ctx, assets.phone, b.x, b.y, b.w, b.h, flip);
-    } else {
-      ctx.fillStyle = "#e9f0ff";
-      ctx.fillRect(R(b.x), R(b.y), b.w, b.h);
+  for (const e of state.enemies){
+    if (!e.alive) continue;
+    const img = assets.enemy1 || assets.enemy2;
+    if (img) ctx.drawImage(img, e.x, e.y, e.w, e.h);
+    else {
+      ctx.fillStyle = "#f44";
+      ctx.fillRect(e.x, e.y, e.w, e.h);
     }
   }
 
-  // enemy bullets
-  for (const b of state.enemyBullets) {
-    ctx.fillStyle = "#ff6b6b";
-    ctx.fillRect(R(b.x), R(b.y), b.w, b.h);
+  // bullets
+  for (const b of state.bullets){
+    if (b.from === "player" && assets.phone){
+      ctx.drawImage(assets.phone, b.x - 10, b.y - 10, 20, 20);
+    } else {
+      ctx.fillStyle = b.from === "enemy" ? "#ff6" : "#9df";
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
+    }
   }
 
   // player
-  const pImg = assets[player.charKey];
-  const pFlip = player.face < 0;
-  if (pImg) drawSprite(ctx, pImg, player.x, player.y, player.w, player.h, pFlip);
-  else { ctx.fillStyle="#fff"; ctx.fillRect(R(player.x), R(player.y), player.w, player.h); }
+  const charImg = assets[state.player.charKey];
+  drawChar(ctx, charImg, state.player, tMs);
 
   ctx.restore();
 }
