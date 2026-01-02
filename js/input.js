@@ -1,50 +1,26 @@
-const PREVENT = new Set(["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+// js/input.js
+export function createInput(){
+  const keys = new Set();
 
-export function createInput(target = window) {
-  const down = new Set();
-  const pressed = new Set();
-  const released = new Set();
-
-  function onKeyDown(e) {
-    if (PREVENT.has(e.code)) e.preventDefault();
-    if (!down.has(e.code)) pressed.add(e.code);
-    down.add(e.code);
-  }
-
-  function onKeyUp(e) {
-    if (PREVENT.has(e.code)) e.preventDefault();
-    down.delete(e.code);
-    released.add(e.code);
-  }
-
-  target.addEventListener("keydown", onKeyDown, { passive: false });
-  target.addEventListener("keyup", onKeyUp, { passive: false });
-
-  return {
-    isDown: (code) => down.has(code),
-    wasPressed: (code) => pressed.has(code),
-    wasReleased: (code) => released.has(code),
-
-    consumePress(code) {
-      const had = pressed.has(code);
-      pressed.delete(code);
-      return had;
-    },
-
-    consumeRelease(code) {
-      const had = released.has(code);
-      released.delete(code);
-      return had;
-    },
-
-    clearFrame() {
-      pressed.clear();
-      released.clear();
-    },
-
-    destroy() {
-      target.removeEventListener("keydown", onKeyDown);
-      target.removeEventListener("keyup", onKeyUp);
-    },
+  const down = (e) => {
+    keys.add(e.code);
+    // prevent page scroll on space
+    if (e.code === "Space") e.preventDefault();
   };
+  const up = (e) => keys.delete(e.code);
+
+  window.addEventListener("keydown", down, { passive:false });
+  window.addEventListener("keyup", up);
+
+  const api = {
+    keys,
+    left:  () => keys.has("ArrowLeft") || keys.has("KeyA"),
+    right: () => keys.has("ArrowRight") || keys.has("KeyD"),
+    jump:  () => keys.has("Space"),
+    throw: () => keys.has("KeyF"),
+    dash:  () => keys.has("ShiftLeft") || keys.has("ShiftRight"),
+    pause: () => keys.has("Escape"),
+  };
+
+  return api;
 }
