@@ -1,118 +1,119 @@
+// js/world.js
 import { CONFIG } from "./config.js";
-import { randi } from "./utils.js";
-import { spawnEnemy } from "./enemies.js";
+import { clamp, randRange } from "./utils.js";
 
-function makePlatform(x, y, w) {
-  return { x, y, w, h: CONFIG.world.platformH, kind: "solid" };
-}
+export function generateLevel(level){
+  const W = CONFIG.canvas.w;
+  const H = CONFIG.canvas.h;
 
-function pickPlatformNear(platforms, xTarget) {
-  let best = platforms[0];
-  let bestD = Infinity;
-  for (const p of platforms) {
-    const cx = p.x + p.w * 0.5;
-    const d = Math.abs(cx - xTarget);
-    if (d < bestD) { bestD = d; best = p; }
-  }
-  return best;
-}
+  // Phase 2 (difficulty bump) after level 5
+  const phase2 = level >= 6;
 
-export function generateLevel(level) {
-  const floorY = CONFIG.world.floorY;
-  const W = CONFIG.world.levelMinW + level * CONFIG.world.levelGrow;
+  const gapMin = CONFIG.world.gapMin;
+  const gapMax = phase2 ? Math.min(CONFIG.world.gapMax + 10, 135) : CONFIG.world.gapMax;
+  const stepYMax = phase2 ? Math.min(CONFIG.world.stepYMax + 10, 135) : CONFIG.world.stepYMax;
+
+  const spikeChance = phase2 ? Math.min(CONFIG.world.spikeChance + 0.08, 0.45) : CONFIG.world.spikeChance;
+  const enemyChance = phase2 ? Math.min(CONFIG.world.enemyChance + 0.10, 0.55) : CONFIG.world.enemyChance;
 
   const platforms = [];
   const coins = [];
   const spikes = [];
   const enemies = [];
 
-  // ✅ NO bottom/ground platform
-  // Instead: start platform
-  const startPlat = makePlatform(60, floorY - 110, 260);
-  platforms.push(startPlat);
+  // Start platform (not a full floor)
+  let x = 40;
+  let y = 410;
+  let w = 260;
 
-  // chain platforms
-  let x = startPlat.x + startPlat.w + 120;
-  let y = startPlat.y - 40;
+  platforms.push({ x, y, w, h: CONFIG.world.platformH });
 
-  const platformCount = 14 + level;
+  // Build forward
+  const count = 8 + Math.min(level, 6); // more platforms later
+  for (let i = 1; i < count; i++){
+    const prev = platforms[platforms.length - 1];
+    const gap = randRange(gapMin, gapMax);
+    const pw = randRange(CONFIG.world.platformWMin, CONFIG.world.platformWMax);
 
-  for (let i = 0; i < platformCount; i++) {
-    const w = randi(CONFIG.world.platformMinW, CONFIG.world.platformMaxW);
-    const gap = randi(CONFIG.world.gapMin, CONFIG.world.gapMax);
-    const dy = randi(-CONFIG.world.stepYMax, CONFIG.world.stepYMax);
+    const dy = randRange(-stepYMax, stepYMax);
+    let ny = clamp(prev.y + dy, 140, 430);
 
-    x += gap;
-    y = Math.max(140, Math.min(floorY - 110, y + dy));
+    const nx = prev.x + prev.w + gap;
 
-    const p = makePlatform(x, y, w);
-    platforms.push(p);
-
-    // coins
-    if (Math.random() < CONFIG.world.coinChance) {
-      const cCount = randi(1, 3);
-      for (let k = 0; k < cCount; k++) {
-        coins.push({
-          x: x + randi(16, Math.max(16, w - 30)),
-          y: y - randi(26, 62),
-          w: 18,
-          h: 18,
-          taken: false,
-        });
-      }
-    }
-
-    // enemies (on top of platform)
-    if (Math.random() < CONFIG.world.enemyChance) {
-      const type = Math.random() < 0.35 ? 2 : 1;
-      const e = spawnEnemy(type, x + randi(14, Math.max(14, w - 60)), y - 34);
-      enemies.push(e);
-    }
-
-    // spikes (on top of platform, not on invisible ground)
-    if (Math.random() < CONFIG.world.spikeChance && w > 90) {
-      const sx = x + randi(14, Math.max(14, w - 60));
-      const sy = y - 44;
-      spikes.push({ x: sx, y: sy, w: 44, h: 44 });
-    }
-
-    x += w;
+    platforms.push({ x: nx, y: ny, w: pw, h: CONFIG.world.platformH });
   }
 
-  // place checkpoint + exit on real platforms near end
-  const checkpointPlat = pickPlatformNear(platforms, W - 520);
-  const exitPlat = pickPlatformNear(platforms, W - 260);
+  // Place checkpoint on 2nd-to-last, door on last (ALWAYS on platforms)
+  const pCheckpoint = platforms[Math.max(1, platforms.length - 2)];
+  const pDoor = platforms[platforms.length - 1];
 
   const checkpoint = {
-    x: checkpointPlat.x + Math.min(checkpointPlat.w - 34, Math.max(8, checkpointPlat.w * 0.35)),
-    y: checkpointPlat.y - 56,
-    w: 34,
-    h: 56,
-    reached: false,
+    x: pCheckpoint.x + pCheckpoint.w * 0.15,
+    y: pCheckpoint.y - 46,
+    w: 30,
+    h: 46,
+    active: false
   };
 
-  const exit = {
-    x: exitPlat.x + Math.min(exitPlat.w - 52, Math.max(8, exitPlat.w * 0.60)),
-    y: exitPlat.y - 72,
-    w: 52,
-    h: 72,
+  const door = {
+    x: pDoor.x + pDoor.w * 0.72,
+    y: pDoor.y - 64,
+    w: 44,
+    h: 64,
+    open: false
   };
 
-  return {
-    level,
-    W,
-    platforms,
-    coins,
-    spikes,
-    enemies,
-    checkpoint,
-    exit,
-    exitUnlocked: false,
+  // Coins, spikes, enemies on platforms
+  let coinId = 0;
 
-    // spawn point on the start platform
-    spawn: {
-      x: startPlat.x + 40,
-      y: startPlat.y - CONFIG.player.h,
-    },
+  for (let i = 0; i < platforms.length; i++){
+    const p = platforms[i];
+
+    // coins
+    const nCoins = Math.floor(randRange(CONFIG.world.coinsPerPlatformMin, CONFIG.world.coinsPerPlatformMax + 1));
+    for (let c = 0; c < nCoins; c++){
+      coins.push({
+        id: `${level}-${coinId++}`,
+        x: p.x + 26 + c * 26,
+        y: p.y - 26,
+        r: 10,
+        collected: false
+      });
+    }
+
+    // spikes (avoid start platform + avoid checkpoint/door platforms)
+    const isSpecial = (p === pCheckpoint) || (p === pDoor) || i === 0;
+    if (!isSpecial && Math.random() < spikeChance){
+      // spike sits on platform
+      spikes.push({
+        x: p.x + p.w * randRange(0.25, 0.75),
+        y: p.y - CONFIG.spike.drawH + 6, // slight embed
+        w: CONFIG.spike.drawW,
+        h: CONFIG.spike.drawH
+      });
+    }
+
+    // enemies
+    if (!isSpecial && Math.random() < enemyChance){
+      enemies.push({
+        x: p.x + p.w * randRange(0.25, 0.75),
+        y: p.y - CONFIG.enemy.h,
+        w: CONFIG.enemy.w,
+        h: CONFIG.enemy.h,
+        dir: Math.random() < 0.5 ? -1 : 1,
+        patrolLeft: p.x + 10,
+        patrolRight: p.x + p.w - CONFIG.enemy.w - 10,
+        alive: true,
+        shootCooldown: randRange(350, 900)
+      });
+    }
+  }
+
+  // Spawn on first platform
+  const spawn = {
+    x: platforms[0].x + 30,
+    y: platforms[0].y - 48
   };
+
+  return { platforms, coins, spikes, enemies, checkpoint, door, spawn, phase2 };
 }
