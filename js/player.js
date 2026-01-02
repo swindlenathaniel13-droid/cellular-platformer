@@ -1,93 +1,136 @@
+// js/player.js
 import { CONFIG } from "./config.js";
-import { clamp } from "./utils.js";
+import { clamp, randRange } from "./utils.js";
 
-export function createPlayer(charKey) {
+export function createPlayer(charKey){
   return {
-    x: 120,
-    y: 120,
+    charKey,
+    x: 0, y: 0,
     w: CONFIG.player.w,
     h: CONFIG.player.h,
-    vx: 0,
-    vy: 0,
-    face: 1,
-
-    charKey,
-    hp: 10,
-    hpMax: 10,
-
-    coins: 0,
-
+    vx: 0, vy: 0,
+    dt: 0,
     onGround: false,
-    hitCeil: false,
 
-    coyote: 0,
-    jumpBuf: 0,
-    invuln: 0,
+    // timers
+    coyoteT: 0,
+    jumpBufferT: 0,
+    invulnT: 0,
 
-    throwCd: 0,
+    // dash
+    dashUnlocked: false,
+    dashT: 0,
+    dashCooldownT: 0,
+
+    // combat
+    throwCooldownT: 0,
+
+    // stats
+    hpMax: 10,
+    hp: 10
   };
 }
 
-export function applyPhysics(player, dt) {
-  player.vy += CONFIG.physics.gravity * dt;
-  player.vy = clamp(player.vy, -99999, CONFIG.physics.maxFall);
-
-  player.invuln = Math.max(0, player.invuln - dt);
-  player.throwCd = Math.max(0, player.throwCd - dt);
-
-  player.coyote = Math.max(0, player.coyote - dt);
-  player.jumpBuf = Math.max(0, player.jumpBuf - dt);
-}
-
-export function updatePlayer(player, input, dt) {
-  const left = input.isDown("ArrowLeft") || input.isDown("KeyA");
-  const right = input.isDown("ArrowRight") || input.isDown("KeyD");
-
-  let move = 0;
-  if (left) move -= 1;
-  if (right) move += 1;
-
-  if (move !== 0) player.face = move;
-
-  const targetV = move * CONFIG.player.moveV;
-  if (player.onGround) {
-    player.vx = targetV;
-    player.coyote = CONFIG.player.coyote;
-  } else {
-    player.vx = (player.vx * (1 - CONFIG.player.airControl)) + (targetV * CONFIG.player.airControl);
-  }
-
-  // Jump buffer
-  if (input.consumePress("Space")) {
-    player.jumpBuf = CONFIG.player.jumpBuffer;
-  }
-
-  // Execute jump if buffered + coyote available
-  if (player.jumpBuf > 0 && player.coyote > 0) {
-    player.vy = -CONFIG.player.jumpV;
-    player.coyote = 0;
-    player.jumpBuf = 0;
-  }
-
-  // Variable jump: if you release Space early, cut upward velocity
-  if (input.consumeRelease("Space")) {
-    if (player.vy < -CONFIG.player.jumpCutV) {
-      player.vy = -CONFIG.player.jumpCutV;
-    }
-  }
-}
-
-export function canThrow(player) {
-  return player.throwCd <= 0;
-}
-
-export function markThrew(player) {
-  player.throwCd = CONFIG.throw.cooldown;
-}
-
-export function damagePlayer(player, amount) {
-  if (player.invuln > 0) return false;
-  player.hp = Math.max(0, player.hp - amount);
-  player.invuln = CONFIG.player.invuln;
+export function damagePlayer(p, amount){
+  if (p.invulnT > 0) return false;
+  p.hp = Math.max(0, p.hp - amount);
+  p.invulnT = CONFIG.player.invulnMs;
   return true;
+}
+
+export function healPlayer(p, amount){
+  p.hp = Math.min(p.hpMax, p.hp + amount);
+}
+
+export function updatePlayer(p, input, dtMs){
+  const dt = dtMs / 1000;
+  p.dt = dt;
+
+  // timers
+  p.invulnT = Math.max(0, p.invulnT - dtMs);
+  p.throwCooldownT = Math.max(0, p.throwCooldownT - dtMs);
+  p.dashCooldownT = Math.max(0, p.dashCooldownT - dtMs);
+  p.dashT = Math.max(0, p.dashT - dtMs);
+
+  // jump buffers
+  if (!p.onGround) p.coyoteT = Math.max(0, p.coyoteT - dtMs);
+  if (p.onGround) p.coyoteT = CONFIG.player.coyoteMs;
+
+  if (input.jump()) p.jumpBufferT = CONFIG.player.jumpBufferMs;
+  else p.jumpBufferT = Math.max(0, p.jumpBufferT - dtMs);
+
+  // dash
+  const wantDash = input.dash();
+  if (p.dashUnlocked && wantDash && p.dashCooldownT <= 0 && p.dashT <= 0){
+    p.dashT = CONFIG.player.dashMs;
+    p.dashCooldownT = CONFIG.player.dashCooldownMs;
+  }
+
+  // movement accel
+  const left = input.left();
+  const right = input.right();
+  const dir = (right ? 1 : 0) - (left ? 1 : 0);
+
+  const targetSpeed = (p.onGround ? CONFIG.player.moveSpeed : CONFIG.player.airSpeed) * dir;
+  const accel = p.onGround ? CONFIG.player.accel : CONFIG.player.airAccel;
+
+  if (dir !== 0){
+    const dv = targetSpeed - p.vx;
+    const step = clamp(dv, -accel * dt, accel * dt);
+    p.vx += step;
+  } else if (p.onGround){
+    p.vx *= CONFIG.player.friction;
+    if (Math.abs(p.vx) < 6) p.vx = 0;
+  }
+
+  // dash overrides vx briefly
+  if (p.dashT > 0){
+    const dashDir = dir !== 0 ? dir : (p.vx >= 0 ? 1 : -1);
+    p.vx = dashDir * CONFIG.player.dashSpeed;
+    p.vy *= 0.85;
+  }
+
+  // gravity
+  p.vy += CONFIG.player.gravity * dt;
+
+  // jump trigger (buffer + coyote)
+  const canJump = (p.onGround || p.coyoteT > 0);
+  if (p.jumpBufferT > 0 && canJump){
+    p.vy = CONFIG.player.jumpVel;
+    p.onGround = false;
+    p.jumpBufferT = 0;
+    p.coyoteT = 0;
+  }
+
+  // jump cut (release early)
+  if (!input.jump() && p.vy < 0){
+    const cut = CONFIG.player.jumpVel * CONFIG.player.jumpCutFactor; // negative
+    if (p.vy < cut) p.vy = cut;
+  }
+}
+
+export function tryThrow(p, facingDir){
+  if (p.throwCooldownT > 0) return null;
+  p.throwCooldownT = CONFIG.throw.cooldownMs;
+
+  const baseSpeed = CONFIG.throw.speed;
+  const speed = baseSpeed * (1 + randRange(-CONFIG.throw.speedJitter, CONFIG.throw.speedJitter));
+
+  const spread = CONFIG.throw.spreadRad;
+  const angle = randRange(-spread, spread) + (facingDir > 0 ? 0 : Math.PI);
+
+  // Bias upward a bit so throws feel nicer
+  const upBias = -0.18;
+  const vx = Math.cos(angle) * speed;
+  const vy = Math.sin(angle) * speed + upBias * speed;
+
+  return {
+    x: p.x + p.w * 0.5,
+    y: p.y + p.h * 0.35,
+    vx,
+    vy,
+    r: CONFIG.throw.hitRadius,
+    life: CONFIG.throw.lifetimeMs,
+    from: "player"
+  };
 }
