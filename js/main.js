@@ -2,349 +2,353 @@
 import { CONFIG } from "./config.js";
 import { loadAssets } from "./assets.js";
 import { createInput } from "./input.js";
-import { rectsOverlap, clamp } from "./utils.js";
-import { moveAndCollide } from "./physics.js";
-import { createPlayer, updatePlayer, applyPhysics, canThrow, markThrew, damagePlayer } from "./player.js";
+import { resolvePlatforms } from "./physics.js";
+import { aabb, clamp } from "./utils.js";
 import { generateLevel } from "./world.js";
-import { hitEnemy, enemyRect, updateEnemies } from "./enemies.js";
+import { createPlayer, updatePlayer, tryThrow, damagePlayer, healPlayer } from "./player.js";
+import { updateEnemies, killEnemy } from "./enemies.js";
 import { drawGame } from "./render.js";
-import { bindUI, show, hide, setBootProgress, bootWarn, updateHUD, buildCharGrid, buildShop } from "./ui.js";
+import { uiRefs, setOverlay, setBootProgress, showWarn, buildCharSelect, updateHUD, buildShop } from "./ui.js";
 
-const ui = bindUI();
+const ui = uiRefs();
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-canvas.width = CONFIG.canvas.w;
-canvas.height = CONFIG.canvas.h;
-
-const input = createInput(window);
+const input = createInput();
 
 const state = {
   assets: null,
-  missing: [],
-  world: null,
-  player: null,
+  level: 1,
+  phase2: false,
+
+  coins: 0, // total (persists)
   bullets: [],
-  enemyBullets: [],
+
   camX: 0,
   camY: 0,
 
-  phase: "BOOT",
-  dashUnlocked: false,
+  platforms: [],
+  coinsLevel: [], // legacy not used
+  coins: 0,
+  spikes: [],
+  enemies: [],
+  checkpoint: null,
+  door: null,
+  spawn: null,
 
-  lastT: 0,
+  player: null,
+
+  screen: "boot", // boot|char|play|shop
 };
 
-function spikeHitbox(s) {
-  return {
-    x: s.x + CONFIG.spike.hitInsetX,
-    y: s.y + CONFIG.spike.hitInsetTop,
-    w: Math.max(1, s.w - CONFIG.spike.hitInsetX * 2),
-    h: Math.max(1, s.h - CONFIG.spike.hitInsetTop - CONFIG.spike.hitInsetBottom),
-  };
+function setProgress(done, total, file){
+  if (ui.bootSub) ui.bootSub.textContent = "Loading assets…";
+  if (ui.bootFile) ui.bootFile.textContent = file || "—";
+  setBootProgress(ui, done, total);
 }
 
-function resetRun(level = 1, keepCoins = true) {
-  state.world = generateLevel(level);
+function bootError(text){
+  showWarn(ui, text);
+  if (ui.bootSub) ui.bootSub.textContent = "Fix assets and refresh.";
+}
 
-  const prevCoins = keepCoins ? (state.player?.coins ?? 0) : 0;
-  const prevChar = state.player?.charKey ?? "nate";
-  const prevHPMax = state.player?.hpMax ?? 10;
+function startLevel(level){
+  state.level = level;
 
-  state.player = createPlayer(prevChar);
-  state.player.hpMax = prevHPMax;
-  state.player.hp = Math.min(prevHPMax, prevHPMax);
-  state.player.coins = prevCoins;
+  const L = generateLevel(level);
+  state.phase2 = L.phase2;
 
-  state.player.x = state.world.spawn.x;
-  state.player.y = state.world.spawn.y;
+  state.platforms = L.platforms;
+  state.coins = state.coins ?? 0;
+  state.coinsLevel = L.coins;
+  state.spikes = L.spikes;
+  state.enemies = L.enemies;
+  state.checkpoint = L.checkpoint;
+  state.door = L.door;
+  state.spawn = L.spawn;
 
+  // reset transient bullets each level
   state.bullets = [];
-  state.enemyBullets = [];
+
+  // spawn player
+  state.player.x = state.spawn.x;
+  state.player.y = state.spawn.y;
+  state.player.vx = 0;
+  state.player.vy = 0;
+  state.player.onGround = false;
+
+  // door starts closed until checkpoint
+  state.door.open = false;
+  state.checkpoint.active = false;
 }
 
-function nextLevel() {
-  const lvl = state.world.level + 1;
-  resetRun(lvl, true);
-  state.phase = "PLAY";
-  hide(ui.shop.overlay);
-}
+function openShop(){
+  state.screen = "shop";
+  setOverlay(ui.shopOverlay, true);
 
-function openShop() {
-  state.phase = "SHOP";
-  show(ui.shop.overlay);
+  buildShop(ui, state, (item) => {
+    if (state.coins < item.cost) return;
+    state.coins -= item.cost;
 
-  const doBuy = (item) => {
-    if (state.player.coins < item.cost) return;
-
-    if (item.id === "hp") {
-      state.player.coins -= item.cost;
+    if (item.id === "dash"){
+      state.player.dashUnlocked = true;
+    }
+    if (item.id === "hp"){
       state.player.hpMax += 1;
       state.player.hp = Math.min(state.player.hpMax, state.player.hp + 1);
     }
-    if (item.id === "dash") {
-      state.player.coins -= item.cost;
-      state.dashUnlocked = true;
+    if (item.id === "heal"){
+      healPlayer(state.player, 3);
     }
 
-    buildShop(ui, state, doBuy);
-  };
+    buildShop(ui, state, arguments.callee);
+    updateHUD(ui, state);
+  });
 
-  buildShop(ui, state, doBuy);
-  ui.shop.cont.onclick = () => nextLevel();
+  ui.shopContinueBtn.onclick = () => closeShopAdvance();
 }
 
-function spawnBullet() {
-  if (!canThrow(state.player)) return;
+function closeShopAdvance(){
+  setOverlay(ui.shopOverlay, false);
+  state.screen = "play";
 
-  const dir = state.player.face || 1;
-
-  // phone icon projectile size
-  const bw = 22, bh = 22;
-
-  // ✅ random speed + random angle + arc
-  const spdMul = 1 + (Math.random() * 2 - 1) * CONFIG.throw.speedRand; // ±
-  const baseSpeed = CONFIG.throw.speed * spdMul;
-
-  const ang = (Math.random() * 2 - 1) * CONFIG.throw.angleRand; // radians
-  const vx = Math.cos(ang) * baseSpeed * dir;
-  const vy = Math.sin(ang) * baseSpeed - CONFIG.throw.arcUp;
-
-  const b = {
-    x: state.player.x + (dir > 0 ? state.player.w : -bw),
-    y: state.player.y + state.player.h * 0.40,
-    w: bw,
-    h: bh,
-    vx,
-    vy,
-    life: CONFIG.throw.life,
-  };
-
-  state.bullets.push(b);
-  markThrew(state.player);
+  // Advance to next level
+  startLevel(state.level + 1);
 }
 
-function updatePlayerBullets(dt) {
-  for (let i = state.bullets.length - 1; i >= 0; i--) {
-    const b = state.bullets[i];
+function spikeHitbox(s){
+  const ix = CONFIG.spike.hitboxInsetX;
+  const iy = CONFIG.spike.hitboxInsetY;
+  return {
+    x: s.x + ix,
+    y: s.y + iy,
+    w: Math.max(2, CONFIG.spike.drawW - ix*2),
+    h: Math.max(2, CONFIG.spike.drawH - iy*2)
+  };
+}
 
-    // ✅ arc gravity
-    b.vy += CONFIG.throw.gravity * dt;
+function updateCamera(){
+  const p = state.player;
+  const targetX = (p.x + p.w/2) - CONFIG.canvas.w/2 + (p.vx >= 0 ? CONFIG.camera.lookAhead : -CONFIG.camera.lookAhead);
+  const targetY = (p.y + p.h/2) - CONFIG.canvas.h/2;
 
+  state.camX += (targetX - state.camX) * CONFIG.camera.lerp;
+  state.camY += (targetY - state.camY) * CONFIG.camera.lerp;
+
+  // clamp camera to sensible bounds
+  state.camX = clamp(state.camX, -50, 5000);
+  state.camY = clamp(state.camY, -80, 600);
+}
+
+function updateBullets(dtMs){
+  const dt = dtMs / 1000;
+  state.bullets = state.bullets.filter(b => (b.life -= dtMs) > 0);
+
+  for (const b of state.bullets){
     b.x += b.vx * dt;
     b.y += b.vy * dt;
-    b.life -= dt;
 
-    let dead = b.life <= 0;
+    // gravity only on player throw (feel better)
+    if (b.from === "player") b.vy += CONFIG.throw.gravity * dt;
 
-    // platform collision
-    if (!dead) {
-      for (const p of state.world.platforms) {
-        if (rectsOverlap(b, p)) { dead = true; break; }
-      }
-    }
-
-    // hit enemies
-    if (!dead) {
-      for (let ei = state.world.enemies.length - 1; ei >= 0; ei--) {
-        const e = state.world.enemies[ei];
-        if (rectsOverlap(b, enemyRect(e))) {
-          const killed = hitEnemy(state.world.enemies, ei, 1);
-          dead = true;
-          if (killed) {
-            state.world.enemies.splice(ei, 1);
-            // drop a coin
-            state.world.coins.push({ x: e.x + 10, y: e.y - 18, w: 18, h: 18, taken: false });
-          }
+    // collide with enemies if player bullet
+    if (b.from === "player"){
+      for (const e of state.enemies){
+        if (!e.alive) continue;
+        const hit = {
+          x: b.x - b.r, y: b.y - b.r, w: b.r*2, h: b.r*2
+        };
+        if (aabb(hit, e)){
+          killEnemy(e);
+          b.life = 0;
           break;
         }
       }
     }
 
-    if (dead) state.bullets.splice(i, 1);
-  }
-}
-
-function updateEnemyBullets(dt) {
-  for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
-    const b = state.enemyBullets[i];
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
-    b.life -= dt;
-
-    let dead = b.life <= 0;
-
-    // platforms block them
-    if (!dead) {
-      for (const p of state.world.platforms) {
-        if (rectsOverlap(b, p)) { dead = true; break; }
+    // collide with player if enemy bullet
+    if (b.from === "enemy"){
+      const hit = { x: b.x - b.r, y: b.y - b.r, w: b.r*2, h: b.r*2 };
+      if (aabb(hit, state.player)){
+        damagePlayer(state.player, CONFIG.enemy.bulletDamage);
+        b.life = 0;
       }
     }
-
-    // hit player
-    if (!dead && rectsOverlap(b, state.player)) {
-      damagePlayer(state.player, 1);
-      dead = true;
-    }
-
-    if (dead) state.enemyBullets.splice(i, 1);
   }
+
+  state.bullets = state.bullets.filter(b => b.life > 0);
 }
 
-function updateCamera() {
-  const targetX = state.player.x + state.player.w * 0.5 - CONFIG.canvas.w * 0.5;
-  state.camX = clamp(targetX, 0, Math.max(0, state.world.W - CONFIG.canvas.w));
-  state.camY = 0;
-}
-
-function killEnemyAtIndex(ei) {
-  const e = state.world.enemies[ei];
-  state.world.enemies.splice(ei, 1);
-  // drop coin
-  state.world.coins.push({ x: e.x + 10, y: e.y - 18, w: 18, h: 18, taken: false });
-}
-
-function gameplayStep(dt) {
-  if (input.consumePress("KeyF")) spawnBullet();
-
-  updatePlayer(state.player, input, dt);
-  applyPhysics(state.player, dt);
-  moveAndCollide(state.player, state.world.platforms, dt);
+function handlePickups(){
+  const p = state.player;
 
   // coins
-  for (const c of state.world.coins) {
-    if (c.taken) continue;
-    if (rectsOverlap(state.player, c)) {
-      c.taken = true;
-      state.player.coins += 1;
+  for (const c of state.coinsLevel){
+    if (c.collected) continue;
+    const hit = { x: c.x - c.r, y: c.y - c.r, w: c.r*2, h: c.r*2 };
+    if (aabb(hit, p)){
+      c.collected = true;
+      state.coins += 1; // persists across levels
     }
   }
 
+  // checkpoint -> unlock door, set respawn
+  if (!state.checkpoint.active && aabb(p, state.checkpoint)){
+    state.checkpoint.active = true;
+    state.spawn = { x: state.checkpoint.x, y: state.checkpoint.y };
+    state.door.open = true;
+  }
+
+  // door -> opens shop (ONLY if open)
+  if (state.door.open && aabb(p, state.door)){
+    openShop();
+  }
+}
+
+function handleHazards(){
+  const p = state.player;
+
   // spikes
-  for (const s of state.world.spikes) {
-    if (rectsOverlap(state.player, spikeHitbox(s))) {
-      const hit = damagePlayer(state.player, 1);
-      if (hit) {
-        state.player.vx = -state.player.face * 140;
-        state.player.vy = -420;
+  for (const s of state.spikes){
+    const hb = spikeHitbox(s);
+    if (aabb(p, hb)){
+      const hit = damagePlayer(p, CONFIG.spike.damage);
+      if (hit){
+        // small knockback
+        p.vx *= -0.35;
+        p.vy = Math.min(p.vy, 120);
       }
     }
   }
 
-  // enemy AI + bullets
-  updateEnemies(state.world, state.player, dt, state.enemyBullets);
+  // enemies contact / stomp
+  for (const e of state.enemies){
+    if (!e.alive) continue;
+    if (!aabb(p, e)) continue;
 
-  // ✅ stomp-kill OR contact damage
-  for (let ei = state.world.enemies.length - 1; ei >= 0; ei--) {
-    const e = state.world.enemies[ei];
-    const er = enemyRect(e);
-
-    if (!rectsOverlap(state.player, er)) continue;
-
-    // stomp condition: falling + player bottom is near enemy top
-    const playerBottom = state.player.y + state.player.h;
+    const playerBottom = p.y + p.h;
     const enemyTop = e.y;
+    const falling = p.vy > 120;
 
-    const falling = state.player.vy > 120;
-    const fromAbove = playerBottom <= enemyTop + 14;
-
-    if (falling && fromAbove) {
-      // ✅ stomp kills
-      killEnemyAtIndex(ei);
-      state.player.vy = -CONFIG.player.stompBounceVel; // bounce
-      continue;
-    }
-
-    // otherwise damage player
-    const hit = damagePlayer(state.player, 1);
-    if (hit) {
-      state.player.vx = -state.player.face * 160;
-      state.player.vy = -420;
+    // stomp if coming from above
+    if (CONFIG.player.stompKill && falling && playerBottom - enemyTop < 18){
+      killEnemy(e);
+      p.vy = CONFIG.player.stompBounce;
+    } else {
+      damagePlayer(p, 1);
+      // knockback
+      p.vx += (p.x < e.x ? -160 : 160);
     }
   }
-
-  // checkpoint unlocks exit only
-  if (!state.world.checkpoint.reached && rectsOverlap(state.player, state.world.checkpoint)) {
-    state.world.checkpoint.reached = true;
-    state.world.exitUnlocked = true;
-  }
-
-  // exit opens shop (only if unlocked)
-  if (state.world.exitUnlocked && rectsOverlap(state.player, state.world.exit)) {
-    openShop();
-  }
-
-  // fell off world
-  if (state.player.y > CONFIG.canvas.h + 300) {
-    resetRun(state.world.level, true);
-  }
-
-  updatePlayerBullets(dt);
-  updateEnemyBullets(dt);
-  updateCamera();
 }
 
-function loop(t) {
-  if (!state.lastT) state.lastT = t;
-  const dt = Math.min(0.033, (t - state.lastT) / 1000);
-  state.lastT = t;
+function respawnIfDead(){
+  if (state.player.hp > 0) return;
 
-  if (state.phase === "PLAY") gameplayStep(dt);
+  // On death: respawn at spawn, keep TOTAL coins (you asked to keep coins across clears)
+  state.player.hp = state.player.hpMax;
+  state.player.x = state.spawn.x;
+  state.player.y = state.spawn.y;
+  state.player.vx = 0;
+  state.player.vy = 0;
+}
 
-  if (state.assets && state.world && state.player) {
-    drawGame(ctx, state);
+let last = performance.now();
+function loop(t){
+  const dtMs = Math.min(34, t - last);
+  last = t;
+
+  if (state.screen === "play"){
+    // Update player motion
+    updatePlayer(state.player, input, dtMs);
+    resolvePlatforms(state.player, state.platforms);
+
+    // Throw weapon (random)
+    const facing = (input.right() ? 1 : 0) - (input.left() ? 1 : 0) || (state.player.vx >= 0 ? 1 : -1);
+    if (input.throw()){
+      const b = tryThrow(state.player, facing);
+      if (b) state.bullets.push(b);
+    }
+
+    // Enemies
+    const enemyShots = updateEnemies(state.enemies, state.player, dtMs);
+    for (const s of enemyShots) state.bullets.push(s);
+
+    // Bullets
+    updateBullets(dtMs);
+
+    // Pickups & hazards
+    handlePickups();
+    handleHazards();
+    respawnIfDead();
+
+    // Camera
+    updateCamera();
+
+    // HUD
     updateHUD(ui, state);
   }
 
-  input.clearFrame();
+  // Render
+  if (state.assets){
+    drawGame(ctx, state, t);
+  }
+
   requestAnimationFrame(loop);
 }
 
-async function boot() {
-  show(ui.boot.overlay);
-  hide(ui.chars.overlay);
-  hide(ui.shop.overlay);
-
-  ui.boot.start.disabled = true;
-  ui.boot.warn.style.display = "none";
-  ui.boot.sub.textContent = "Loading assets…";
-
-  const { assets, missing } = await loadAssets(({ loaded, total, file }) => {
-    setBootProgress(ui, loaded, total, file);
+async function boot(){
+  const { assets, missing } = await loadAssets({
+    onProgress: (done, total) => setBootProgress(ui, done, total),
+    onFile: (file) => { if (ui.bootFile) ui.bootFile.textContent = `Loading: ${file}`; }
   });
 
   state.assets = assets;
-  state.missing = missing;
 
-  if (missing.length) {
-    bootWarn(ui,
+  if (ui.hudThrowIcon && assets.phone){
+    ui.hudThrowIcon.src = assets.phone.src;
+  }
+
+  if (missing.length){
+    bootError(
       "Some assets failed to load:\n" +
       missing.map(m => `- ${m}`).join("\n") +
-      "\n\nFix checklist:\n" +
-      "• Folder name is exactly: assets\n" +
-      "• Filenames match EXACT case\n" +
-      "• Files are at /assets (not /assets/assets)\n"
+      "\n\nChecklist:\n• Folder name: assets\n• Filenames EXACT case (Coin.png ≠ coin.png)\n• Files at /assets (not /assets/assets)\n"
     );
   }
 
-  ui.boot.sub.textContent = "Assets loaded. Press START.";
-  ui.boot.start.disabled = false;
+  if (ui.bootSub) ui.bootSub.textContent = "Assets loaded. Press START.";
+  if (ui.bootStartBtn) ui.bootStartBtn.disabled = false;
 
-  ui.boot.start.onclick = () => {
-    hide(ui.boot.overlay);
-    state.phase = "CHAR";
-    show(ui.chars.overlay);
+  ui.bootStartBtn.onclick = () => {
+    setOverlay(ui.bootOverlay, false);
+    setOverlay(ui.charOverlay, true);
+    state.screen = "char";
 
-    buildCharGrid(ui, state.assets, (picked) => {
-      hide(ui.chars.overlay);
-      state.phase = "PLAY";
+    buildCharSelect(ui, state.assets, (picked) => {
       state.player = createPlayer(picked);
-      resetRun(1, false);
+      state.player.dashUnlocked = CONFIG.player.dashUnlocked;
+
+      setOverlay(ui.charOverlay, false);
+      state.screen = "play";
+
+      // IMPORTANT: do NOT reset coins between levels
+      state.coins = 0;
+
+      startLevel(1);
+
+      updateHUD(ui, state);
     });
   };
 
-  requestAnimationFrame(loop);
+  // Shop continue via Enter
+  window.addEventListener("keydown", (e) => {
+    if (state.screen === "shop" && e.code === "Enter"){
+      closeShopAdvance();
+    }
+  });
 }
 
 boot();
+requestAnimationFrame(loop);
