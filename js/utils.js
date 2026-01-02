@@ -1,9 +1,16 @@
+// js/utils.js
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const lerp = (a, b, t) => a + (b - a) * t;
-export const rand = (a, b) => a + Math.random() * (b - a);
-export const randi = (a, b) => Math.floor(rand(a, b + 1));
 
-export function rectsOverlap(a, b) {
+export function randRange(a, b){
+  return a + Math.random() * (b - a);
+}
+
+export function choice(arr){
+  return arr[(Math.random() * arr.length) | 0];
+}
+
+export function aabb(a, b){
   return (
     a.x < b.x + b.w &&
     a.x + a.w > b.x &&
